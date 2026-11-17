@@ -322,6 +322,10 @@ svg.grafik text[fill]{color:inherit}
 svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
 
 .lensa-blok{border-top:1px solid var(--garis);margin-top:14px;padding-top:14px;display:flex;flex-direction:column;gap:6px}
+.btn-sinkron{display:flex;align-items:center;gap:8px;width:100%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:10px;padding:8px 10px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;flex-wrap:wrap;text-align:left}
+.btn-sinkron svg{width:16px;height:16px}
+.btn-sinkron small{flex-basis:100%;font-weight:400;font-size:11px;opacity:.8;margin-left:24px;margin-top:-4px}
+.btn-sinkron:hover{background:rgba(255,255,255,.2)}.btn-sinkron:disabled{opacity:.6;cursor:default}
 
 </style>
 </head>
@@ -356,7 +360,7 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '1.3';
+var VERSI = '1.3.3';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -1838,14 +1842,15 @@ function jadwalSinkron(jeda) {
 }
 
 /** Satu putaran: kirim antrean, lalu tarik perubahan dari server. */
-async function sinkronkan() {
+async function sinkronkan(opsi) {
+  opsi = opsi || {};
   if (!sinkAktif()) return { ok: false };
   if (SINK.jalan) { SINK.ulang = true; return { ok: false }; }
   var sk = DB.sinkron;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) { sk.status = 'offline'; if (typeof renderNav === 'function') renderNav(); return { ok: false }; }
   SINK.jalan = true; sk.status = 'jalan';
   if (typeof renderNav === 'function') renderNav();
-  var berubah = false, terkirim = 0, diterima = 0;
+  var berubah = false, terkirim = 0, diterima = 0, lensaMasuk = 0;
   try {
     // 1. kirim antrean (bertahap ±1,5 MB)
     var kunci = Object.keys(sk.antre), batch = [], ukuran = 0;
@@ -1874,7 +1879,8 @@ async function sinkronkan() {
     var lagi = true, putaran = 0;
     while (lagi && putaran < 200) {
       putaran++;
-      var t = await panggilServer({ aksi: 'tarik', sejak: sk.seq });
+      var t = await panggilServer({ aksi: 'tarik', sejak: sk.seq, lensa: putaran === 1 ? (opsi.lensa ? 'segera' : 'auto') : '' });
+      if (t.lensa && t.lensa.masuk) lensaMasuk += t.lensa.masuk;
       (t.item || []).forEach(function (it) { if (terapkanButir(it)) { berubah = true; diterima++; } });
       if (t.lensa) sk.lensa = t.lensa;
       sk.seq = t.seq;
@@ -1894,7 +1900,7 @@ async function sinkronkan() {
   if (berubah && typeof setelahSinkron === 'function') setelahSinkron();
   else if (typeof renderNav === 'function') renderNav();
   if (SINK.ulang) { SINK.ulang = false; jadwalSinkron(500); }
-  return { ok: !sk.galat, terkirim: terkirim, diterima: diterima, galat: sk.galat };
+  return { ok: !sk.galat, terkirim: terkirim, diterima: diterima, galat: sk.galat, lensaMasuk: lensaMasuk, lensa: lensaAktif() };
 }
 
 /** Kode sambung = alamat + kunci, untuk ditempel di gadget lain. */
@@ -2078,7 +2084,7 @@ function hitung(opsi) {
     var iuran = (a && a.iuran) || (m && m.nilai) || 0;
     var ni = intiNama(nama);
     var o = {
-      npp: n_npp, nama: nama, jenis: ni.jenis, inti: ni.inti, bp: bp, bln: bln, koef: koef, n: n, itb: itb, itw: itwY, kat: kunciKat(itb, n),
+      npp: n_npp, div: (a && a.div) || (m && m.div) || '', nama: nama, jenis: ni.jenis, inti: ni.inti, bp: bp, bln: bln, koef: koef, n: n, itb: itb, itw: itwY, kat: kunciKat(itb, n),
       itwBeda: !!(a && a.itw && !geser && (a.itw === 'Y') !== (koef <= 1)),
       ibrN: a ? a.ibrN : 0, ibrB: ibrB, iuran: iuran, tunggakan: Math.max(0, koef - 1) * iuran, tagihan: Math.max(0, koef) * iuran,
       tgl: m && m.tgl ? m.tgl : '', tk: m ? m.tk : 0, prog: m ? m.prog : '', keps: m ? m.keps : '', skala: m ? m.skala : '',
@@ -2086,6 +2092,9 @@ function hitung(opsi) {
       kontakDbu: dbu[n_npp] ? { nama: dbu[n_npp].picNama, hp: dbu[n_npp].picHp, jabatan: dbu[n_npp].picJabatan } : null,
       kontakLensa: ls[n_npp] ? { nama: ls[n_npp].picNama, hp: ls[n_npp].picHp } : null
     };
+    // tagihan = rumus Rincian Tagihan LENSA PK (iuran + denda − IBR), sama di gambar, pesan WA, dan daftar
+    o.rinci = rincianNpp(o, { M0: M0 });
+    o.tagihan = o.rinci ? o.rinci.totalTagihan : 0;
     if (!o.jenis && o.prog) o.jenisTampil = 'NPP ' + o.prog; else o.jenisTampil = o.jenis || 'NPP';
     npps.push(o);
     if (!periodeMaks || periode > periodeMaks) periodeMaks = periode;
@@ -2300,6 +2309,43 @@ function baruBayarSejak(model) {
     units: model.units.filter(function (u) { var p = lap.peta[u.id]; return u.itb && p && p.k !== 'tepat'; }).sort(function (a, b) { return (a.tglBayar || '') < (b.tglBayar || '') ? -1 : 1; })
   };
 }
+
+/* ---------------- rincian tunggakan per NPP (format Rincian Tagihan, sama dengan LENSA PK) ---------------- */
+function bulat2(n) { return Math.round((+n || 0) * 100) / 100; }
+function angka2(n) {
+  var s = (Math.round((+n || 0) * 100) / 100).toFixed(2).split('.');
+  return s[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + s[1];
+}
+function umurTeks(u) { return u === 0 ? '-' : String(u); }
+
+/** Sama dengan tebakNonAsn_ LENSA PK: pemberi kerja non-badan usaha (mis. relawan SPPG, skala MI) tanpa denda. */
+function nonAsn(nama, skala) {
+  var n = ' ' + String(nama || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ') + ' ';
+  if (String(skala || '').trim() === 'MI') return true;
+  if (/ (PT|CV|UD|PDAM|PERUMDA|PERUMDAM|PERSERODA|BUMD|BUMN|BUMDES|BANK|BPR|KOPERASI|KOP|KLINIK|PMI|APOTEK) /.test(n)) return false;
+  if (/ NON ASN | K2 | HONORER | TENAGA KONTRAK | TENAGA PENDUKUNG | TENAGA HARIAN LEPAS | THL | PTT | PPPK | TKS | GTT | PEGAWAI TIDAK TETAP | GURU TIDAK TETAP /.test(n)) return true;
+  if (/ (APARAT|APARATUR|PERANGKAT) (PEMERINTAH |PEMRINTAH )?DESA | PEMDES | BPD | BADAN PERMUSYAWARATAN | KADER | PKK | POSYANDU | KPM | LEMBAGA ADAT | RT RW | RUKUN TETANGGA | RUKUN WARGA | LINMAS | RELAWAN SPPG | PETUGAS SENSUS | KPPS | PANTARLIH /.test(n)) return true;
+  return false;
+}
+
+/** Iuran + denda yang belum dibayar sampai bulan berjalan (rumus LENSA PK: denda 2% × umur, maks. 12 bulan; non-badan usaha tanpa denda). */
+function rincianNpp(o, model) {
+  var M0 = model.M0, bp = o.bp ? mIdx(o.bp) : (o.bln !== null && o.bln !== undefined ? M0 - o.bln : null);
+  if (bp === null || bp >= M0) return null;
+  var dendaOn = !nonAsn(o.nama, o.skala), rows = [];
+  var t = { tagihan: 0, dibayar: 0, piutang: 0, denda: 0, dendaDibayar: 0, dendaPiutang: 0, jumlah: 0 };
+  for (var M = Math.max(bp + 1, M0 - 59); M <= M0; M++) {
+    var umur = M0 - M - 1, tag = bulat2(o.iuran);
+    var den = dendaOn ? bulat2(tag * Math.min(Math.max(umur, 0), 12) * 0.02) : 0;
+    var b = blthDariIdx(M);
+    rows.push({ periode: b.slice(5, 7) + '-' + b.slice(0, 4), umur: umur, tagihan: tag, dibayar: 0, piutang: tag, denda: den, dendaDibayar: 0, dendaPiutang: den, jumlah: bulat2(tag + den) });
+    t.tagihan += tag; t.piutang += tag; t.denda += den; t.dendaPiutang += den; t.jumlah += bulat2(tag + den);
+  }
+  Object.keys(t).forEach(function (k) { t[k] = bulat2(t[k]); });
+  var ibr = bulat2(o.ibrN), sisa = bulat2(t.jumlah - ibr), bi = blthDariIdx(M0);
+  return { periode: bi.slice(5, 7) + '/' + bi.slice(0, 4), rows: rows, total: t, ibr: ibr, totalTagihan: Math.max(0, sisa), lebih: sisa < 0 ? -sisa : 0, dendaOn: dendaOn };
+}
+
 
 /* === 45-analisa.js === */
 /* ----------------------------------------------------------------------
@@ -2554,14 +2600,24 @@ function rentangBulanBelum(o, M0) {
   return a + ' – ' + namaBulan(sampai) + ' (' + o.koef + ' bulan)';
 }
 
+/** Rincian per NPP — format teks sama dengan pesan Rincian tagihan LENSA PK. */
 function teksRincian(u, model) {
-  return u.npps.filter(function (o) { return o.koef > 0; }).map(function (o) {
-    var t = '📌 *' + o.jenisTampil + '* · NPP ' + o.npp + '\n   Belum terbayar: ' + rentangBulanBelum(o, model.M0) +
-      '\n   Iuran per bulan: ' + rupiah(o.iuran);
-    if (o.ibrN > 0 && o.bln > 0) t += '\n   Sudah dibayar, belum dirinci (IBR): ' + rupiah(o.ibrN) + ' — mohon lengkapi rincian tenaga kerja';
-    if (o.kodeIuran) t += '\n   🔑 Kode iuran: ' + o.kodeIuran;
-    return t;
-  }).join('\n\n');
+  var blok = u.npps.filter(function (o) { return o.rinci; }).map(function (o) {
+    var r = o.rinci, L = ['📌 *' + o.nama + '*', 'NPP/Div: ' + o.npp + ' / ' + (o.div || '000') + ' · Periode ' + r.periode];
+    r.rows.forEach(function (x, i) {
+      L.push((i + 1) + ') ' + x.periode + ': Rp ' + angka2(x.tagihan) + (x.denda ? ' + denda Rp ' + angka2(x.denda) + ' (2% × ' + Math.min(x.umur, 12) + ')' : ''));
+    });
+    L.push('Total iuran: Rp ' + angka2(r.total.piutang));
+    if (r.dendaOn) L.push('Total denda: Rp ' + angka2(r.total.dendaPiutang));
+    if (r.ibr) L.push('Sisa iuran belum rinci (IBR): − Rp ' + angka2(r.ibr));
+    L.push('💰 *Total tagihan: Rp ' + angka2(r.totalTagihan) + '*' + (r.lebih ? ' (saldo IBR lebih Rp ' + angka2(r.lebih) + ')' : ''));
+    if (o.kodeIuran) L.push('🔑 Kode iuran: *' + o.kodeIuran + '*');
+    return L.join('\n');
+  });
+  if (!blok.length) return '';
+  var tanpaDenda = u.npps.some(function (o) { return o.rinci && !o.rinci.dendaOn; });
+  return blok.join('\n\n') + '\n\n_Dihitung dari iuran bulan terakhir; perubahan upah atau mutasi TK dihitung kemudian. Denda 2% per bulan keterlambatan (maks. 12 bulan)' +
+    (tanpaDenda ? ', tidak berlaku untuk pemberi kerja non-badan usaha' : '') + '._';
 }
 
 function teksDaftarNpp(u) {
@@ -2584,7 +2640,7 @@ function isiPesanWa(templat, u, model) {
     .replace(/\{yayasan\}/g, u.yayasan || '')
     .replace(/\{rincian\}/g, u.npps ? teksRincian(u, model) : '')
     .replace(/\{daftar_npp\}/g, u.npps ? teksDaftarNpp(u) : '')
-    .replace(/\{total\}/g, rupiah(u.tagihan || 0))
+    .replace(/\{total\}/g, 'Rp ' + angka2(u.tagihan || 0))
     .replace(/\{bulan\}/g, namaBulan(model.bulanIni))
     .replace(/\{bulan_lalu\}/g, namaBulan(blthDariIdx(model.M0 - 1)))
     .replace(/\{batas\}/g, batasTgl(model))
@@ -2979,38 +3035,64 @@ function gambarPiutang(model) {
   });
 }
 
-/** Gambar rincian tagihan satu SPPG (untuk dikirim ke PIC). */
-function gambarRincianSppg(u, model) {
-  var M0 = model.M0, npps = u.npps.filter(function (o) { return o.koef > 0; });
-  var k = kanvasBaru(220 + 150 + npps.length * 250 + 16 + 140 + 120), g = k.g;
-  var y = kepalaKartu(g, labelKantor().replace('UPDATE KEPATUHAN IURAN SPPG', 'RINCIAN TAGIHAN IURAN'), 'SPPG ' + u.label, [u.yayasan ? 'Yayasan ' + u.yayasan : '', u.kecamatan, 'data per ' + tglSedang(u.periode || model.dataPer.akhir)].filter(String).join(' · '));
-  y += 64;
-  tulis(g, 'Kepada Bapak/Ibu ' + (u.pic.nama || 'PIC SPPG'), KP, y, { berat: 600, ukuran: 26, maks: KW - KP * 2 });
-  tulis(g, 'Rincian iuran BPJS Ketenagakerjaan yang belum terbayar s.d. ' + namaBulan(model.bulanIni) + ':', KP, y + 40, { ukuran: 22, warna: WARNA.pudar, maks: KW - KP * 2 });
-  y += 86;
-  npps.forEach(function (o) {
-    kotakBulat(g, KP, y, KW - KP * 2, 226, 16, '#F7F8FA');
-    g.fillStyle = warnaKat(o.kat); g.fillRect(KP, y + 16, 6, 194);
-    var x = KP + 32, kn = KW - KP - 28;
-    tulis(g, o.jenisTampil || 'NPP', x, y + 50, { berat: 700, ukuran: 30, maks: 520 });
-    tulis(g, 'NPP ' + o.npp, kn, y + 50, { ukuran: 22, warna: WARNA.pudar, rata: 'right' });
-    tulis(g, 'Bulan belum terbayar', x, y + 94, { ukuran: 21, warna: WARNA.pudar });
-    tulis(g, rentangBulanBelum(o, M0), kn, y + 94, { berat: 600, ukuran: 22, rata: 'right', maks: 560 });
-    tulis(g, 'Iuran per bulan', x, y + 130, { ukuran: 21, warna: WARNA.pudar });
-    tulis(g, rupiah(o.iuran), kn, y + 130, { berat: 600, ukuran: 22, rata: 'right' });
-    tulis(g, 'Kode iuran', x, y + 186, { ukuran: 21, warna: WARNA.pudar });
-    tulis(g, o.kodeIuran || '–', x + 140, y + 188, { berat: 700, ukuran: 30, warna: WARNA.biru });
-    tulis(g, rupiah(o.tagihan), kn, y + 188, { berat: 700, ukuran: 30, warna: WARNA.m6, rata: 'right' });
-    y += 250;
+/** Gambar berformat Rincian Tagihan (kolom a–k) untuk satu NPP — tata letak sama dengan unduhan LENSA PK. */
+function gambarRincianNpp(o, r) {
+  var kol = [['No', 'a', 44], ['Periode', 'b', 92], ['Umur', 'c', 52], ['Tagihan', 'd', 118], ['Dibayar', 'e', 84], ['Piutang', 'f=d-e', 118],
+    ['Umur', 'g', 52], ['Tagihan', 'h=dxgx2%', 108], ['Dibayar', 'i', 84], ['Piutang', 'j=h-i', 100], ['Piutang Iuran dan Denda', 'k', 168]];
+  var lebar = kol.reduce(function (s, k) { return s + k[2]; }, 0), kiri = 40, W = lebar + kiri * 2, bar = 30;
+  var H = 250 + (r.rows.length + 6) * bar + 120, sk = 2, pgt = DB.pengaturan;
+  var c = document.createElement('canvas'); c.width = W * sk; c.height = H * sk;
+  var x = c.getContext('2d'); x.scale(sk, sk);
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#111'; x.strokeStyle = '#555'; x.lineWidth = 0.8;
+  function teks(t, X, Y, rata, tebal, uk) { x.font = (tebal ? 'bold ' : '') + (uk || 13) + 'px Arial, sans-serif'; x.textAlign = rata || 'left'; x.fillText(t, X, Y); }
+  teks('RINCIAN TAGIHAN', W / 2, 40, 'center', true, 16);
+  teks('Periode : ' + r.periode, W / 2, 62, 'center', true, 14);
+  [['Kantor Cabang', pgt.kantor || ''], ['NPP/Divisi', o.npp + ' / ' + (o.div || '000')], ['Nama Perusahaan', o.nama]].forEach(function (b, i) {
+    teks(b[0], kiri, 104 + i * 22); teks(': ' + b[1], kiri + 140, 104 + i * 22);
   });
-  y += 16;
-  g.fillStyle = WARNA.teks; g.fillRect(KP, y, KW - KP * 2, 3);
-  tulis(g, 'Total belum terbayar', KP, y + 62, { berat: 700, ukuran: 30 });
-  tulis(g, rupiah(u.tagihan), KW - KP, y + 64, { berat: 700, ukuran: 44, warna: WARNA.m6, rata: 'right' });
-  tulis(g, 'Mohon dibayar paling lambat tanggal ' + (+DB.pengaturan.batas || 15) + ' setiap bulan. Sudah bayar? Mohon abaikan.', KP, y + 112, { ukuran: 21, warna: WARNA.pudar, maks: KW - KP * 2 });
-  y += 140 + 90;
-  kakiKartu(g, y - 90, 'Cara bayar: bit.ly/bayar-iuran-bpjstk', 'Gunakan kode iuran di atas');
-  return k.c;
+  teks('IURAN DAN DENDA YANG BELUM DIBAYARKAN', kiri, 182, 'left', true, 12.5);
+  var y0 = 194, xs = [kiri];
+  kol.forEach(function (k) { xs.push(xs[xs.length - 1] + k[2]); });
+  function garis(x1, y1, x2, y2) { x.beginPath(); x.moveTo(x1, y1); x.lineTo(x2, y2); x.stroke(); }
+  function sel(t, i, j, y, rata, tebal) { var a = xs[i], b = xs[j + 1]; teks(t, rata === 'right' ? b - 6 : rata === 'center' ? (a + b) / 2 : a + 6, y + 20, rata, tebal, 12.5); }
+  sel('No', 0, 0, y0 + bar / 2, 'center'); sel('Periode', 1, 1, y0 + bar / 2, 'center'); sel('Iuran', 2, 5, y0, 'center'); sel('Denda', 6, 9, y0, 'center');
+  teks('Piutang Iuran', (xs[10] + xs[11]) / 2, y0 + 22, 'center', false, 12.5); teks('dan Denda', (xs[10] + xs[11]) / 2, y0 + 38, 'center', false, 12.5);
+  for (var i = 2; i <= 9; i++) sel(kol[i][0], i, i, y0 + bar, 'center');
+  kol.forEach(function (k, i) { sel(k[1], i, i, y0 + bar * 2, 'center'); });
+  var yT = y0, yB = y0 + bar * 3;
+  garis(xs[0], yT, xs[11], yT); garis(xs[2], yT + bar, xs[10], yT + bar); garis(xs[0], yT + bar * 2, xs[11], yT + bar * 2);
+  var y = yB, yTot, yIbr;
+  r.rows.forEach(function (b, n) {
+    var v = [String(n + 1), b.periode, umurTeks(b.umur), angka2(b.tagihan), angka2(b.dibayar), angka2(b.piutang), umurTeks(b.umur), angka2(b.denda), angka2(b.dendaDibayar), angka2(b.dendaPiutang), angka2(b.jumlah)];
+    garis(xs[0], y, xs[11], y);
+    v.forEach(function (t, j) { sel(t, j, j, y, j <= 2 || j === 6 ? 'center' : 'right'); });
+    y += bar;
+  });
+  garis(xs[0], y, xs[11], y);
+  yTot = y;
+  sel('Total Tagihan', 0, 2, y, 'left', true);
+  [[3, r.total.tagihan], [4, 0], [5, r.total.piutang], [7, r.total.denda], [8, 0], [9, r.total.dendaPiutang], [10, r.total.jumlah]].forEach(function (z) { sel(angka2(z[1]), z[0], z[0], y, 'right', true); });
+  y += bar; garis(xs[0], y, xs[11], y);
+  yIbr = y;
+  sel('Sisa Iuran Belum Rinci (IBR)', 0, 9, y, 'right'); sel(angka2(r.ibr), 10, 10, y, 'right');
+  y += bar; garis(xs[0], y, xs[11], y);
+  sel('Total Tagihan', 0, 9, y, 'right', true); sel(angka2(r.totalTagihan), 10, 10, y, 'right', true);
+  y += bar; garis(xs[0], y, xs[11], y);
+  [0, 10, 11].forEach(function (i) { garis(xs[i], yT, xs[i], y); });
+  [1, 2].forEach(function (i) { garis(xs[i], yT, xs[i], yTot); });
+  garis(xs[6], yT, xs[6], yIbr);
+  [3, 4, 5, 7, 8, 9].forEach(function (i) { garis(xs[i], yT + bar, xs[i], yIbr); });
+  y += 22;
+  teks('*) Denda keterlambatan pembayaran iuran >12 bulan tetap dikenakan maksimal sebesar 12 bulan' + (r.dendaOn ? '' : '; pemberi kerja non-badan usaha tidak dikenakan denda'), kiri, y, 'left', false, 12);
+  teks('Keterangan : Perhitungan berdasarkan pembayaran iuran bulan sebelumnya. Perubahan iuran karena perubahan upah atau mutasi TK dihitung kemudian.', kiri, y + 20, 'left', false, 12);
+  x.fillStyle = '#666';
+  teks('Perkiraan disusun ' + (pgt.petugas || 'petugas pembina') + ' per ' + tglSedang(hariIni()) + ' dengan Monitor SPPG; angka final mengikuti sistem BPJS Ketenagakerjaan.', kiri, y + 44, 'left', false, 11.5);
+  return c;
+}
+
+/** Semua gambar rincian satu SPPG: satu gambar per NPP yang punya tagihan. */
+function gambarRincianSppg(u, model) {
+  return (u.npps || []).map(function (o) { var r = rincianNpp(o, model); return r ? { o: o, r: r, c: gambarRincianNpp(o, r) } : null; }).filter(Boolean);
 }
 
 function kanvasKeBlob(c) { return new Promise(function (ok) { c.toBlob(function (b) { ok(b); }, 'image/png'); }); }
@@ -3151,6 +3233,7 @@ function renderNav() {
   if (sinkAktif()) {
     var sk = DB.sinkron, n = Object.keys(sk.antre).length;
     var st = sk.status === 'jalan' ? 'Menyinkron…' : sk.status === 'offline' ? 'Offline' + (n ? ' · ' + n + ' menunggu sinyal' : '') : sk.galat ? 'Sinkron bermasalah' : 'Sinkron ' + (sk.terakhir ? sk.terakhir.slice(11, 16) : '') + (n ? ' · ' + n + ' menunggu' : '');
+    b.push('<button class="btn-sinkron" data-a="sinkronSekarang"' + (sk.status === 'jalan' ? ' disabled' : '') + '>' + ikon('sinkron') + 'Sinkron sekarang' + (lensaAktif() ? '<small>termasuk LENSA PK</small>' : '') + '</button>');
     b.push('<button class="sinkron-status" data-a="sinkronSekarang" title="Sinkron sekarang"><span class="titik' + (sk.galat || sk.status === 'offline' ? ' kuning' : '') + '"></span><span class="panjang">' + esc(st) + '</span></button>');
   }
   b.push('<div class="panjang">Versi ' + VERSI + (sinkAktif() ? '' : ' · tanpa internet') + '</div>');
@@ -3915,19 +3998,30 @@ var AKSI = {
   },
   gambarSppg: function () {
     var u = cariUnit(UI.laci); if (!u) return;
-    var c = gambarRincianSppg(u, M); UI.gambarSppg = { u: u, c: c };
-    bukaDialog('<h2 style="margin:0 0 10px">Gambar rincian tagihan</h2><img class="penuh" alt="Rincian tagihan SPPG ' + esc(u.label) + '" src="' + c.toDataURL('image/png') + '">' +
-      '<div class="aksi"><button class="btn utama" data-a="salinGambarSppg">' + ikon('salin') + 'Salin gambar</button><button class="btn" data-a="unduhGambarSppg">' + ikon('unduh') + 'Unduh</button><button class="btn polos" data-a="tutupDialog">Tutup</button></div>' +
+    var g = gambarRincianSppg(u, M); UI.gambarSppg = { u: u, g: g };
+    if (!g.length) { toast('Tidak ada tagihan: iuran sudah terbayar sampai bulan ini.'); return; }
+    var total = g.reduce(function (s, z) { return s + z.r.totalTagihan; }, 0);
+    bukaDialog('<h2 style="margin:0 0 4px">Rincian tagihan SPPG ' + esc(u.label) + '</h2><p style="margin:0 0 12px;font-size:13px;color:var(--pudar)">' + g.length + ' NPP · total Rp ' + angka2(total) + ' (iuran + denda, dikurangi IBR) · format sama dengan LENSA PK</p>' +
+      g.map(function (z, i) {
+        return '<div style="margin-bottom:16px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px"><b>' + esc(z.o.jenisTampil || 'NPP') + ' · NPP ' + esc(z.o.npp) + '</b><span style="color:var(--pudar);font-size:13px">Rp ' + angka2(z.r.totalTagihan) + '</span>' +
+          '<span style="margin-left:auto;display:flex;gap:6px"><button class="btn kecil utama" data-a="salinGambarSppg" data-v="' + i + '">' + ikon('salin') + 'Salin</button><button class="btn kecil" data-a="unduhGambarSppg" data-v="' + i + '">' + ikon('unduh') + 'Unduh</button></span></div>' +
+          '<img class="penuh" style="border:1px solid var(--garis);border-radius:8px" alt="Rincian tagihan NPP ' + esc(z.o.npp) + '" src="' + z.c.toDataURL('image/png') + '"></div>';
+      }).join('') +
+      '<div class="aksi">' + (g.length > 1 ? '<button class="btn" data-a="unduhGambarSppg" data-v="semua">' + ikon('unduh') + 'Unduh semua</button>' : '') + '<button class="btn polos" data-a="tutupDialog">Tutup</button></div>' +
       '<p style="font-size:13px;color:var(--pudar);margin:8px 0 0">Salin, lalu tempel (Ctrl+V) di chat WhatsApp PIC.</p>', true);
   },
-  salinGambarSppg: async function () {
-    var g = UI.gambarSppg; if (!g) return;
-    if (await salinGambar(g.c)) toast('Gambar disalin. Tempel (Ctrl+V) di chat WhatsApp PIC.');
+  salinGambarSppg: async function (v) {
+    var z = UI.gambarSppg && UI.gambarSppg.g[+v || 0]; if (!z) return;
+    if (await salinGambar(z.c)) toast('Gambar disalin. Tempel (Ctrl+V) di chat WhatsApp PIC.');
     else toast('Browser ini tidak bisa menyalin gambar. Pakai tombol Unduh.', 4000);
   },
-  unduhGambarSppg: async function () {
-    var g = UI.gambarSppg; if (!g) return;
-    unduhBlob(await kanvasKeBlob(g.c), 'Rincian_tagihan_SPPG_' + norm(g.u.label).replace(/ /g, '_') + '_' + hariIni() + '.png');
+  unduhGambarSppg: async function (v) {
+    var G = UI.gambarSppg; if (!G) return;
+    var daftar = v === 'semua' ? G.g : [G.g[+v || 0]];
+    for (var i = 0; i < daftar.length; i++) {
+      unduhBlob(await kanvasKeBlob(daftar[i].c), 'rincian_tagihan_' + daftar[i].o.npp + '.png');
+      if (daftar.length > 1) await new Promise(function (ok) { setTimeout(ok, 350); });
+    }
   },
   perbesar: function (v, el) { bukaDialog('<img class="penuh" alt="" src="' + el.getAttribute('src') + '"><div class="aksi"><button class="btn utama" data-a="tutupDialog">Tutup</button></div>', true); },
 
@@ -3984,8 +4078,9 @@ var AKSI = {
   },
   sinkronSekarang: async function () {
     if (!sinkAktif()) { keTab('data'); return; }
-    var h = await sinkronkan();
-    toast(h.ok ? 'Sinkron selesai · ' + h.terkirim + ' dikirim, ' + h.diterima + ' diterima.' : 'Sinkron gagal: ' + (h.galat || 'sedang berjalan'), 4000);
+    toast('Sinkron' + (lensaAktif() ? ' (termasuk LENSA PK)' : '') + '…', 1500);
+    var h = await sinkronkan({ lensa: true });
+    toast(h.ok ? 'Sinkron selesai · ' + h.terkirim + ' dikirim, ' + h.diterima + ' diterima' + (h.lensa ? ' · titipan untuk LENSA terkirim; di LENSA PK ketuk "Sinkron dengan Monitor SPPG" agar langsung diproses' : '') + '.' : 'Sinkron gagal: ' + (h.galat || 'sedang berjalan'), h.lensa ? 6000 : 4000);
     if (UI.tab === 'data') render(true);
   },
   salinKodeSambung: async function () { if (await salinTeks(buatKodeSambung())) toast('Kode sambung disalin. Kirim hanya ke gadget Anda sendiri (berisi kunci).', 4500); },
@@ -4369,7 +4464,7 @@ LAYAR.dasbor = function () {
   siapkanAnalisa();
   var r = M.rekap;
   var h = '<div class="kepala"><div><h1>Kepatuhan iuran SPPG</h1><div class="sub">' + esc(namaBulan(M.bulanIni)) + ' · data per ' + esc(M.dataPer.teks) + ' · ' + r.sppg + ' SPPG · ' + r.npp + ' NPP · ' + ribuan(r.tk) + ' pekerja</div></div>' +
-    '<div class="kepala-aksi"><button class="btn" data-a="rapat">' + ikon('layar') + 'Mode rapat</button><button class="btn" data-a="pilihBerkas">' + ikon('unggah') + 'Impor laporan</button><button class="btn utama" data-a="tab" data-v="laporan">' + ikon('laporan') + 'Buat laporan grup</button></div></div>';
+    '<div class="kepala-aksi">' + (sinkAktif() ? '<button class="btn" data-a="sinkronSekarang">' + ikon('sinkron') + 'Sinkron sekarang</button>' : '') + '<button class="btn" data-a="rapat">' + ikon('layar') + 'Mode rapat</button><button class="btn" data-a="pilihBerkas">' + ikon('unggah') + 'Impor laporan</button><button class="btn utama" data-a="tab" data-v="laporan">' + ikon('laporan') + 'Buat laporan grup</button></div></div>';
   h += blokPeringatan();
   h += kartuKpi();
   h += '<div class="grid2">' + kartuKurva() + kartuTren() + '</div>';
