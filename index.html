@@ -360,7 +360,7 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '1.3.3';
+var VERSI = '1.3.4';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -2872,7 +2872,7 @@ function gambarDaftar(opsi) {
   var halaman = Math.max(1, Math.ceil(butir.length / per));
   for (var h = 0; h < halaman; h++) {
     var potong = butir.slice(h * per, (h + 1) * per), dua = per === 28 && potong.length > 14;
-    var barisN = dua ? Math.ceil(potong.length / 2) : potong.length, tb = dua ? 96 : 92;
+    var barisN = dua ? Math.ceil(potong.length / 2) : potong.length, tb = dua ? 118 : 92;
     var tinggi = 220 + 110 + Math.max(1, barisN) * tb + (opsi.catatan ? 70 : 30) + 120;
     var k = kanvasBaru(tinggi), g = k.g;
     var y = kepalaKartu(g, labelKantor(), opsi.judul, opsi.sub + (halaman > 1 ? ' · bagian ' + (h + 1) + '/' + halaman : ''));
@@ -2889,10 +2889,12 @@ function gambarDaftar(opsi) {
       if (bar > 0) { g.fillStyle = WARNA.garis; g.fillRect(x, yy, kolomW, 2); }
       var ukJ = dua ? 25 : 29, ukS = dua ? 18 : 20, kananW = dua ? 0 : 330;
       if (dua) {
-        var lJ = tulis(g, b.judul, x, yy + 38, { berat: 700, ukuran: ukJ, maks: kolomW - (b.baru ? 90 : 0) - (b.kanan2 ? 150 : 0) });
-        if (b.baru) { kotakBulat(g, x + lJ + 10, yy + 16, 70, 28, 6, WARNA.tepat); tulis(g, 'BARU', x + lJ + 45, yy + 37, { berat: 700, ukuran: 16, warna: '#fff', rata: 'center' }); }
-        if (b.kanan2) tulis(g, b.kanan2, x + kolomW, yy + 38, { berat: 700, ukuran: 19, warna: b.warna2 || WARNA.pudar, rata: 'right' });
-        tulis(g, (b.kanan1 ? b.kanan1 + ' · ' : '') + b.sub, x, yy + 70, { ukuran: ukS, warna: WARNA.pudar, maks: kolomW });
+        // dua kolom: tiap keterangan di barisnya sendiri agar tidak saling menimpa
+        var lJ = tulis(g, b.judul, x, yy + 36, { berat: 700, ukuran: ukJ, maks: kolomW - (b.baru ? 90 : 0) });
+        if (b.baru) { kotakBulat(g, x + lJ + 10, yy + 14, 70, 28, 6, WARNA.tepat); tulis(g, 'BARU', x + lJ + 45, yy + 35, { berat: 700, ukuran: 16, warna: '#fff', rata: 'center' }); }
+        var lK = b.kanan2 ? tulis(g, b.kanan2, x, yy + 66, { berat: 700, ukuran: 19, warna: b.warna2 || WARNA.pudar, maks: kolomW }) : 0;
+        if (b.kanan1) tulis(g, (lK ? ' · ' : '') + b.kanan1, x + lK, yy + 66, { berat: 600, ukuran: 19, warna: WARNA.teks, maks: Math.max(40, kolomW - lK) });
+        tulis(g, b.sub, x, yy + 96, { ukuran: ukS, warna: WARNA.pudar, maks: kolomW });
       } else {
         var lj = tulis(g, b.judul, x, yy + 42, { berat: 700, ukuran: ukJ, maks: kolomW - kananW - (b.baru ? 100 : 20) });
         if (b.baru) { kotakBulat(g, x + lj + 12, yy + 18, 76, 30, 6, WARNA.tepat); tulis(g, 'BARU', x + lj + 50, yy + 40, { berat: 700, ukuran: 17, warna: '#fff', rata: 'center' }); }
