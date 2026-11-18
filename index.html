@@ -6,6 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src https://script.google.com https://script.googleusercontent.com; worker-src 'self'; manifest-src 'self'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#1F3E8C">
+<link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAABmJLR0QA/wD/AP+gvaeTAAADrElEQVRIibVWXWgcVRQ+92/u3c02wbYhMTXGikQRSmlDKZU0UESx6EtFoUpfRFBf9EEQEZ/cF8H2UV80YFMqKhZ/UbDWUmvFYiJGrTRVbGmjJtHakja7szNz7z0+zO7s3d2ZZNOa8zRzOXzfd+6554cMjOyDlTS6ougAwNvyIkApo4QSQgDAogVrDVrA6yZgjHHhcS5iaNcQUetIR5Ex+loIKGWelJyLLAdCiBCeEJ7WOgx8a+0yCDgXUuVaVWc4c84LQcWPoihFaOuR50mVy7eJXjMiVd7z5NIEnHNPquVAO8qk4qL5ShuuiFImVUf8vXVj3+MPbWwnDEQYfW/yu59mAEDKnDXGzUcDgSdVgvjAjtvu2rSuTe1z/5ZiAkKIlMr3y3XRyRdjjPM6X5b0i5fLJ74/v1AK3UPXmXHBWB2nTsCF147Ygx/9uOfZQ59//dsiPm4magQEXPmtprW98Nd8JdCAGN/7YgRcJEFVCShlhCzWlz4+OjXyyOgb704sBlwzQgglrJEgA91anJ6ZL5VDaxAAjEkv11SOBoKsspo49ef23aPFV4+1iZsYpVXkJZqdtQgAJq3PIMJnX/168odp6bHOQj4LgdeA0mPvWVMYHhrYMNhz87qu4aGBwfVrEWB4aOCmvs4nXvyQXTpxz+Ccv8DePn5LGHa7rcJiFZDEE40yls8XXOjiM9sfvPf2LF2vvzNxYfzA83efjn//uaqefn/z2St9jFVzWy4tWGvcCAyidR/SW5/8oo11c6Mk713bAQCzF0tjH0zu33Xuctm7IR+OfnsrAOzefL54pDsmQESLpuGKAEFrLZxaO3PuUvG1b1zVWzbc+ObL9wPAYy98OvP3ghR275d3MIoAUNx56oszPUl1aB0lw66eZB1FIqOYu1bJVR1e9+pqJrtX57s61eGp3pd2/nxosv/hTdOE4OGpXlYrVR3VG0mdwBittW6tZyX50bFHpceSk1ee2zH/1LZdTyIC3Hfn7NxVNTa+/sjZ/pwSsXxjTOJM3LWFUprLF1prYmRLf8+ajqbDP2avHDv5uzGGAHAhuCcJAAL6pVKc3uYI4scaVHyVa37Ux8enU69OqlzTSVDxXfSUiaZ1FAaVVLglLQwqumUsp1RyGAYWrVQ5kjkUmg0BA7+sdcr+kt4qdBRZY6RULHttScxEUSWs4LLWljgfvl9mjHMhMhYvq7W+9sWrqs5oY3RAfEopITQudUSLaK39P1bHmlqwxgK0OwxcW/Ht+j8Bzn4DRYgrxQAAAABJRU5ErkJggg==">
 <title>Monitor SPPG · BPJS Ketenagakerjaan KC Pamekasan</title>
 <style>
 :root{
@@ -26,7 +27,8 @@ h1,h2,h3{margin:0;line-height:1.2}
 /* ---------- kerangka ---------- */
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh;background:linear-gradient(90deg,var(--biru) 232px,var(--latar) 232px)}
 .sisi{background:var(--biru);color:#fff;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:20px 12px 14px;gap:18px;overflow-y:auto}
-.merek{padding:0 8px}
+.merek{padding:0 6px;display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:11px;align-items:center}
+.merek-logo{grid-row:1 / span 2;width:44px;height:44px;border-radius:11px;box-shadow:0 1px 3px rgba(0,0,0,.25)}
 .merek-judul{font-size:21px;font-weight:700;letter-spacing:-.2px}
 .merek-sub{font-size:12px;color:#C9D3EE;margin-top:2px}
 .nav{display:flex;flex-direction:column;gap:2px}
@@ -221,6 +223,8 @@ textarea.inp.teks-laporan{min-height:440px}
   .sisi-bawah{display:none}
   .sisi{padding:16px 8px;align-items:stretch}
   .merek-sub,.sisi-bawah span.panjang{display:none}
+  .merek{display:block;padding:0}
+  .merek-logo{display:block;width:40px;height:40px;margin:0 auto 6px}
   .merek-judul{font-size:13px;text-align:center}
   .nav button{flex-direction:column;gap:3px;min-height:58px;padding:6px 2px;font-size:11px;text-align:center;justify-content:center}
   .nav .lencana{position:absolute;margin:0;transform:translate(18px,-16px);font-size:10px;padding:0 6px}
@@ -333,6 +337,7 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
 <div class="app" id="app">
   <aside class="sisi" aria-label="Menu utama">
     <div class="merek">
+      <img class="merek-logo" alt="" src="data:image/png;base64,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">
       <div class="merek-judul">Monitor SPPG</div>
       <div class="merek-sub">BPJS Ketenagakerjaan KC Pamekasan</div>
     </div>
@@ -360,7 +365,7 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '1.3.4';
+var VERSI = '1.3.5';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];

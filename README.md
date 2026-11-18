@@ -1,7 +1,7 @@
 # Monitor SPPG · BPJS Ketenagakerjaan KC Pamekasan
 
 Monitoring pembayaran & kepatuhan iuran SPPG, catatan WA ke PIC, dan laporan harian grup.
-Versi 1.3 · aplikasi untuk komputer/tablet · bisa dibuka tanpa sinyal.
+Versi 1.3.3 · aplikasi untuk komputer/tablet · bisa dibuka tanpa sinyal.
 
 **Kode di folder ini publik, tetapi tidak berisi data apa pun.** Data laporan dan catatan hanya tersimpan
 di browser tiap gadget dan di Google Sheet milik Anda (bila sinkron dipasang).
