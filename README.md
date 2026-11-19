@@ -1,7 +1,7 @@
 # Monitor SPPG · BPJS Ketenagakerjaan KC Pamekasan
 
 Monitoring pembayaran & kepatuhan iuran SPPG, catatan WA ke PIC, dan laporan harian grup.
-Versi 1.3.3 · aplikasi untuk komputer/tablet · bisa dibuka tanpa sinyal.
+Versi 1.4.0 · server sinkron 1.3 · aplikasi untuk komputer/tablet · bisa dibuka tanpa sinyal.
 
 **Kode di folder ini publik, tetapi tidak berisi data apa pun.** Data laporan dan catatan hanya tersimpan
 di browser tiap gadget dan di Google Sheet milik Anda (bila sinkron dipasang).
@@ -17,18 +17,27 @@ di browser tiap gadget dan di Google Sheet milik Anda (bila sinkron dipasang).
 
 **Memperbarui versi:** unggah ulang `index.html` yang baru (Add file → Upload files → timpa). Gadget memakai versi baru saat dibuka berikutnya dengan sinyal.
 
-## B. Pasang server sinkron di Google Sheet (sekali saja)
-1. Buat **Google Sheet baru** (terpisah dari LENSA PK), beri nama `Monitor SPPG - Sinkron`.
-2. **Ekstensi → Apps Script** → hapus isi `Code.gs` → tempel seluruh isi `Monitor_SPPG_Sinkron.gs` → Simpan.
-3. Pilih fungsi **siapkan** → **Jalankan** → izinkan akses. Muncul **KUNCI** — salin.
-4. **Terapkan → Deployment baru** → jenis **Aplikasi web** →
-   *Jalankan sebagai:* **Saya** · *Yang memiliki akses:* **Siapa saja** → Terapkan → salin **URL** yang berakhiran `/exec`.
-5. Di aplikasi: **Data & pengaturan → Sinkron antar-gadget** → tempel URL & KUNCI → **Sambungkan**.
+## B. Server sinkron di Google Sheet (oleh admin pemegang Sheet)
+**Memperbarui ke 1.3 (akses per gadget):** buka Sheet "Monitor SPPG - Sinkron" → Ekstensi → Apps Script → ganti seluruh isi
+dengan `Monitor_SPPG_Sinkron.gs` 1.3 → Simpan → **Terapkan → Kelola deployment → (pensil) → Versi baru → Terapkan** (URL /exec tetap).
+Lalu muat ulang Sheet → menu **Monitor SPPG › Kunci admin untuk LENSA PK** → kirim **alamat /exec + kunci admin** itu ke
+pengelola LENSA PK (sekali saja). Gadget yang sudah tersambung terdaftar otomatis saat sinkron berikutnya.
 
-## C. Menyambungkan gadget lain
-1. Di gadget yang sudah tersambung: **Data & pengaturan → Salin kode sambung untuk gadget lain**.
-2. Kirim kode itu ke diri sendiri (jangan ke grup — kode berisi kunci).
-3. Di gadget baru: buka aplikasi → **Data & pengaturan** → tempel di **Kode sambung** → **Sambungkan**.
+**Pasang baru:** buat Google Sheet baru `Monitor SPPG - Sinkron` → Ekstensi → Apps Script → tempel `Monitor_SPPG_Sinkron.gs` →
+jalankan fungsi **siapkan** (izinkan akses) → **Terapkan → Deployment baru → Aplikasi web** (Jalankan sebagai: **Saya** ·
+Yang memiliki akses: **Siapa saja**) → lalu langkah "Kunci admin untuk LENSA PK" di atas.
+
+## C. Masuk di gadget: satu gadget = satu akses (sejak 1.4)
+- Setiap gadget masuk dengan **kode undangan sekali pakai** dari **LENSA PK › Perangkat & pengguna** (aplikasi Monitor SPPG).
+  Di gadget baru: buka aplikasi → tempel pesan / kode (`MSPPG.…`) → **Masuk**. Gadget yang belum terdaftar tidak bisa membuka data.
+- Gadget lama (tersambung dengan KUNCI) terdaftar otomatis; KUNCI lama berlaku 14 hari sejak pembaruan server
+  (atau sampai dimatikan dari LENSA PK), lalu hanya kode undangan yang bisa dipakai.
+- Pengelola LENSA PK bisa memberi nama, hak (**boleh mengubah / hanya melihat**), masa akses, dan **menonaktifkan** gadget:
+  *setelah terkirim* (perubahan terakhir diterima dulu) atau *cabut sekarang*. Setelah dicabut, data Monitor di gadget itu dihapus.
+- Gadget yang **7 hari tidak sinkron** terkunci (data tetap ada) sampai sinkron berhasil.
+- **Keluar:** Data & pengaturan › Sinkron › **Keluar dari gadget ini** (perubahan dikirim dulu, lalu data dihapus).
+- **Log:** setiap perubahan dari setiap gadget tercatat di tab **LOG_AKSES** (waktu, pengguna, gadget, jenis data, hasil);
+  daftar gadget di tab **PERANGKAT**. Kolom "perangkat" di tab DATA berisi ID gadget + nama pengguna.
 
 ## D. Sambungkan dengan LENSA PK (pilihan, sekali saja)
 Syarat: Sheet "Monitor SPPG - Sinkron" dan spreadsheet LENSA PK milik **akun Google yang sama**, dan sinkron (langkah B) sudah jalan.
@@ -56,6 +65,6 @@ Yang bertukar setiap ±5 menit:
 - Menghapus data di satu gadget lewat "Hapus semua data" hanya menghapus di gadget itu, bukan di Google Sheet.
 
 ## Keamanan
-- Siapa pun yang tahu URL **dan** KUNCI bisa membaca data sinkron. Simpan kunci hanya di gadget Anda.
-- Ganti kunci bila bocor: Apps Script → jalankan **gantiKunci** → sambungkan ulang semua gadget.
-- File cadangan (.json) dari aplikasi tidak menyertakan kunci.
+- Tiap gadget memakai token sendiri (disimpan di Sheet hanya sebagai sidik). Kode undangan sekali pakai dan berbatas waktu.
+- Kunci admin (untuk LENSA PK) hanya disimpan di server LENSA PK; ganti bila perlu: menu **Monitor SPPG › Ganti kunci admin LENSA PK**.
+- File cadangan (.json) dari aplikasi tidak menyertakan kunci / token.
