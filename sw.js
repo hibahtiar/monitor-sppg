@@ -1,7 +1,7 @@
 // Monitor SPPG — service worker: aplikasi tetap bisa dibuka tanpa sinyal.
 // Halaman diambil dari jaringan dulu (agar versi baru langsung terpakai), cadangan dari simpanan bila offline.
 // Tidak pernah menyimpan permintaan ke server sinkron (Google).
-const SIMPANAN = 'monitor-sppg-v11';
+const SIMPANAN = 'monitor-sppg-v12';
 const BERKAS = ['./', './index.html', './manifest.webmanifest', './ikon-192.png', './ikon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(SIMPANAN).then(c => c.addAll(BERKAS))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

@@ -1960,7 +1960,7 @@ var CSS_PESAN_WA = "*{box-sizing:border-box}\n.modul-wa{font:15px/1.45 system-ui
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '1.6.0';
+var VERSI = '1.7.0';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -2725,6 +2725,7 @@ function dbKosong() {
     hubSeq: 0,         // 1.6: nomor urut Gudang yang sudah ditarik gadget ini
     hubPemetaan: [],   // 1.6: judul kolom tambahan dari tab PEMETAAN LENSA (lewat Hub)
     hubInfo: {},
+    hubKontakAntre: [], hubLogAntre: [], hubKontakSeq: 0, hubKontakAwal: false, hubLogAwal: false, // 1.7: Buku Kontak (gadget ini saja)
     nppLensa: {},      // NPP binaan kode LENSA (dari laporan ITW/ITB) untuk menyaring laporan tanpa kode pembina
     nppLensaU: 0,
     lensaSejak: '',    // penanda sambungan LENSA yang sudah dikirimi PIC awal
@@ -2894,6 +2895,7 @@ function catatLog(o) {
     templat: o.templat || '', hasil: o.hasil || 'Terkirim', janji: o.janji || '', catatan: o.catatan || '', koefSaat: o.koefSaat === undefined ? null : o.koefSaat, _u: Date.now() };
   DB.log.push(l);
   tandaiUbah('log', l.id);
+  if (typeof antreLogHub === 'function') antreLogHub(l.id); // 1.7: Riwayat Hubungi bersama
   simpanDb();
   return l;
 }
@@ -3252,6 +3254,7 @@ function kirimKeLensa(jenis, data) {
 }
 
 function kirimPicKeLensa(u) {
+  if (u && typeof hubBuku === 'function' && hubBuku()) { antreKontakHub(u.id); jadwalSinkron(800); return; } // 1.7: lewat Buku Kontak (juga SPPG tanpa NPP)
   if (!u || u.manual || !u.npps || !u.npps.length) return;
   var ub = DB.unit[u.id] || {};
   if (!ub.picNama) return;
@@ -3260,6 +3263,7 @@ function kirimPicKeLensa(u) {
 
 /** Sekali per sambungan: PIC yang diisi manual di Monitor dikirim ke LENSA (LENSA memakai yang terakhir diubah). */
 function kirimPicAwalKeLensa() {
+  if (typeof hubBuku === 'function' && hubBuku()) return; // 1.7: kiriman awal lewat Buku Kontak
   var model = typeof hitung === 'function' ? hitung() : null;
   if (!model) return;
   model.units.forEach(function (u) { if ((DB.unit[u.id] || {}).picNama) kirimPicKeLensa(u); });
@@ -3399,6 +3403,8 @@ async function periksaGerbang() {
 var HUB_POLA_URL = /^https:\/\/script\.google\.com\/(a\/[^\/]+\/)?macros\/s\/[\w\-]+\/exec$/;
 function hubUrl() { var i = (DB.lensa || {}).info || {}; return HUB_POLA_URL.test(String(i.hub || '')) ? String(i.hub) : ''; }
 function hubAktif() { return !!(hubUrl() && terdaftar()); }
+/** 1.7 (2B): Buku Kontak sudah disiapkan di Hub → PIC, catatan, dan Pustaka Redaksi lewat Hub, bukan jembatan. */
+function hubBuku() { return hubAktif() && !!(DB.hubInfo && DB.hubInfo.buku); }
 
 /** NPP yang dikenal Monitor (SPPG di daftar & di laporan): ikut disaring Hub walau namanya tidak memuat "SPPG". */
 function nppDikenalMonitor() {
@@ -3464,12 +3470,87 @@ async function sinkronHub() {
       lagi = !!t.lagi;
       await simpanDb(true);
     }
-    DB.hubInfo = { terakhir: waktuSekarang(), galat: '', versi: '' };
+    DB.hubInfo = { terakhir: waktuSekarang(), galat: '', versi: '', buku: !!(t && t.buku) };
+    if (DB.hubInfo.buku && await sinkronKontakHub(url)) berubah = true;
   } catch (e) {
     if (e.cabut) throw e;
-    DB.hubInfo = { terakhir: DB.hubInfo.terakhir || '', galat: e.message };
+    DB.hubInfo = { terakhir: DB.hubInfo.terakhir || '', galat: e.message, buku: !!DB.hubInfo.buku };
     simpanDb();
   }
+  return berubah;
+}
+
+/* ---------------- Buku Kontak (1.7 · LENSA Suite 2B) ---------------- */
+
+/** PIC SPPG yang diubah di gadget ini → antrean kirim ke Buku Kontak. */
+function antreKontakHub(idUnit) {
+  DB.hubKontakAntre = (DB.hubKontakAntre || []).filter(function (x) { return x !== idUnit; });
+  DB.hubKontakAntre.push(idUnit);
+  simpanDb();
+}
+function antreLogHub(idLog) {
+  if (/^(lensa|hub):/.test(String(idLog))) return;
+  DB.hubLogAntre = (DB.hubLogAntre || []).filter(function (x) { return x !== idLog; });
+  DB.hubLogAntre.push(idLog);
+}
+var HASIL_DARI_RIWAYAT = { 'Terkirim': 'Terkirim', 'Dibalas': 'Dibalas', 'Janji bayar': 'Janji bayar', 'Tidak aktif': 'Nomor salah', 'Selesai': 'Selesai' };
+/** Catatan aplikasi lain dari Riwayat Hubungi → riwayat Monitor (id sama dengan kiriman jembatan lama: tidak ganda). */
+function terapkanRiwayatHub(r) {
+  var id = /^L:/.test(r.id) ? 'lensa:' + r.id.slice(2) : 'hub:' + r.id;
+  if (DB.log.some(function (l) { return l.id === id; })) return false;
+  var hasil = HASIL_DARI_RIWAYAT[r.hasil] || r.hasil || 'Tercatat';
+  DB.log.push({ id: id, waktu: String(r.waktu || r.tanggal || '').length <= 10 ? (r.tanggal || r.waktu || '') + ' 00:00' : r.waktu, tanggal: r.tanggal || String(r.waktu || '').slice(0, 10),
+    unit: '', npp: r.npp || [], pic: r.nama_orang || '', wa: r.wa || '', templat: (r.app || 'Aplikasi lain') + ' · ' + (r.jenis || 'Catatan'), hasil: r.janji ? 'Janji bayar' : hasil,
+    janji: r.janji || '', catatan: r.catatan || '', koefSaat: null, sumber: r.app || '', _u: Date.now() });
+  return true;
+}
+
+async function sinkronKontakHub(url) {
+  var berubah = false, model = typeof hitung === 'function' ? hitung() : null;
+  // 1. kiriman PIC: sekali semua PIC yang diisi di Monitor (gadget pertama yang memakai 1.7), lalu yang berubah saja
+  if (!DB.hubKontakAwal && model) model.units.forEach(function (u) { if ((DB.unit[u.id] || {}).picNama && (DB.hubKontakAntre || []).indexOf(u.id) < 0) (DB.hubKontakAntre = DB.hubKontakAntre || []).push(u.id); });
+  var perUnit = {};
+  if (model) model.units.forEach(function (u) { perUnit[u.id] = u; });
+  while ((DB.hubKontakAntre || []).length) {
+    var ids = DB.hubKontakAntre.slice(0, 50), kirim = [];
+    ids.forEach(function (id) {
+      var u = perUnit[id], ub = DB.unit[id] || {};
+      if (!ub.picNama) return;
+      kirim.push({ id: id, npp: u ? u.npps.map(function (o) { return o.npp; }) : [], label: u ? (u.label || u.nama || '') : (ub.nama || ''),
+        picNama: ub.picNama, picWa: hpSeluler(ub.picWa) || ub.picWa || '', sapaan: ub.sapaan || '', u: ub.picU || ub._u || Date.now() });
+    });
+    if (kirim.length) await panggilServer({ aksi: 'hub', app: 'monitor', perintah: 'kontak', unit: kirim }, url);
+    DB.hubKontakAntre = DB.hubKontakAntre.slice(ids.length);
+    await simpanDb(true);
+  }
+  DB.hubKontakAwal = true;
+  // 2. catatan WA: sekali semua catatan Monitor, lalu yang baru saja
+  if (!DB.hubLogAwal) DB.log.forEach(function (l) { antreLogHub(l.id); });
+  while ((DB.hubLogAntre || []).length) {
+    var lid = DB.hubLogAntre.slice(0, 100), peta = {};
+    DB.log.forEach(function (l) { peta[l.id] = l; });
+    var logs = lid.map(function (id) { return peta[id]; }).filter(Boolean).map(function (l) {
+      return { id: l.id, waktu: l.waktu, tanggal: l.tanggal, unit: l.unit, npp: l.npp || [], pic: l.pic, wa: l.wa, templat: l.templat, hasil: l.hasil, janji: l.janji, catatan: l.catatan };
+    });
+    if (logs.length) await panggilServer({ aksi: 'hub', app: 'monitor', perintah: 'catat', log: logs }, url);
+    DB.hubLogAntre = DB.hubLogAntre.slice(lid.length);
+    await simpanDb(true);
+  }
+  DB.hubLogAwal = true;
+  // 3. tarik: PIC dari Buku Kontak, catatan aplikasi lain, Pustaka Redaksi
+  var t = await panggilServer({ aksi: 'hub', app: 'monitor', perintah: 'kontakTarik', sejak: DB.hubKontakSeq || 0, npp: Object.keys(nppDikenalMonitor()),
+    redaksi: ((DB.lensa || {}).redaksi || {}).sidik || '' }, url);
+  DB.lensa = DB.lensa || {};
+  (t.pic || []).forEach(function (p) {
+    var lama = DB.lensa['pic:' + p.npp];
+    if (lama && lama.nama === p.nama && lama.wa === p.wa && (lama.sapaan || '') === (p.sapaan || '') && +lama.u >= +p.u) return;
+    DB.lensa['pic:' + p.npp] = { npp: p.npp, nama: p.nama, wa: p.wa, sapaan: p.sapaan || '', u: +p.u || Date.now(), sumber: 'Buku Kontak' };
+    berubah = true;
+  });
+  (t.riwayat || []).forEach(function (r) { if (terapkanRiwayatHub(r)) berubah = true; });
+  if (t.redaksi && t.redaksi.baris) { DB.lensa.redaksi = t.redaksi; berubah = true; }
+  DB.hubKontakSeq = Number(t.seq) || DB.hubKontakSeq || 0;
+  await simpanDb(true);
   return berubah;
 }
 
@@ -5221,7 +5302,9 @@ function blokHub() {
   return '<br><b style="color:var(--teks)">Gudang Laporan KC</b>: ' + (i.galat ? '<span style="color:#9E2A22">kendala: ' + esc(i.galat) + '</span>' : 'tersambung') +
     (i.terakhir ? ' · terakhir ' + esc(i.terakhir) : '') + (antre ? ' · ' + antre + ' laporan menunggu diunggah' : '') +
     '<br>Laporan ITW/ITB, Monitoring, dan Data BU cukup diunggah sekali, dari Monitor atau LENSA PK: disimpan sekali di gudang, baris binaan ' + esc(kodeLensa()) +
-    ' langsung diolah LENSA PK, dan baris SPPG dari LENSA PK masuk ke sini.';
+    ' langsung diolah LENSA PK, dan baris SPPG dari LENSA PK masuk ke sini.' +
+    (hubBuku() ? '<br><b style="color:var(--teks)">Buku Kontak</b>: tersambung' + ((DB.hubKontakAntre || []).length + (DB.hubLogAntre || []).length ? ' · ' + ((DB.hubKontakAntre || []).length + (DB.hubLogAntre || []).length) + ' perubahan menunggu dikirim' : '') +
+      '. PIC SPPG dan catatan WA dipakai bersama LENSA PK (satu orang satu kontak); bila berbeda, yang terakhir diubah yang dipakai.' : '');
 }
 function blokLensa() {
   var L = DB.sinkron.lensa || {}, info = (DB.lensa || {}).info;
