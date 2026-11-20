@@ -17,11 +17,12 @@ di browser tiap gadget dan di Google Sheet milik Anda (bila sinkron dipasang).
 
 **Memperbarui versi:** unggah ulang `index.html` yang baru (Add file → Upload files → timpa). Gadget memakai versi baru saat dibuka berikutnya dengan sinyal.
 
-## B. Server sinkron di Google Sheet (oleh admin pemegang Sheet)
+## B. Server sinkron di Google Sheet (oleh pemilik Sheet, bukan admin pelaksana)
 **Memperbarui ke 1.3 (akses per gadget):** buka Sheet "Monitor SPPG - Sinkron" → Ekstensi → Apps Script → ganti seluruh isi
 dengan `Monitor_SPPG_Sinkron.gs` 1.3 → Simpan → **Terapkan → Kelola deployment → (pensil) → Versi baru → Terapkan** (URL /exec tetap).
-Lalu muat ulang Sheet → menu **Monitor SPPG › Kunci admin untuk LENSA PK** → kirim **alamat /exec + kunci admin** itu ke
-pengelola LENSA PK (sekali saja). Gadget yang sudah tersambung terdaftar otomatis saat sinkron berikutnya.
+Lalu muat ulang Sheet → menu **Monitor SPPG › Kunci admin untuk LENSA PK** → tempel **alamat /exec + kunci admin** itu di
+LENSA PK › Perangkat & pengguna › Monitor SPPG (sekali saja). Kunci admin hanya untuk pemilik; admin pelaksana cukup memakai
+kode undangan dan bisa dinonaktifkan dari LENSA PK. Gadget yang sudah tersambung terdaftar otomatis saat sinkron berikutnya.
 
 **Pasang baru:** buat Google Sheet baru `Monitor SPPG - Sinkron` → Ekstensi → Apps Script → tempel `Monitor_SPPG_Sinkron.gs` →
 jalankan fungsi **siapkan** (izinkan akses) → **Terapkan → Deployment baru → Aplikasi web** (Jalankan sebagai: **Saya** ·
