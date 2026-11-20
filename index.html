@@ -357,6 +357,908 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
 (function () {
 'use strict';
 /* === kit LENSA Suite === */
+/* =====================================================================
+ *  KitImpor — modul Impor bersama LENSA Suite (Tahap 2A).
+ *  Satu pengurai laporan sistem (ITW/ITB, Monitoring, Data Badan Usaha, KPI084, KPI085, Kartu Iuran,
+ *  Status PK LENSA) untuk mesin LENSA (Apps Script & perangkat), Monitor SPPG, dan Hub.
+ *  ES5 murni, tanpa layanan Google: jalan di Apps Script dan di browser.
+ *  Laporan diurai sekali di perangkat yang mengunggah, lalu dikirim sebagai "laporan ringkas"
+ *  (hanya kolom yang dipakai) ke Gudang Laporan KC.
+ * ===================================================================== */
+var KitImpor = (function () {
+  'use strict';
+  var VERSI = '1.0';
+  var CFG = {
+    // jenis laporan yang dipakai aplikasi ini (urutan = urutan pengenal)
+    jenis: ['DATA_BU', 'MONITORING', 'ITW_ITB', 'KARTU_IURAN', 'KPI084', 'KPI085'],
+    tolak: {},                 // jenis yang dikenali tetapi ditolak aplikasi ini → pesan
+    saranPemetaan: false,      // pesan galat menyarankan tab PEMETAAN (LENSA)
+    tambahan: function () { return []; },  // baris tab PEMETAAN: { laporan, kolom_lensa, judul_di_laporan, wajib }
+    hariIni: function () { return tglLokal(new Date()); },
+    tglLokal: tglLokal
+  };
+  function tglLokal(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function pasang(o) { Object.keys(o || {}).forEach(function (k) { CFG[k] = o[k]; }); _PEMETAAN = null; }
+  function lupakan() { _PEMETAAN = null; }
+
+  var DEF_PEMETAAN = {
+    // 2A: Status PK unduhan LENSA (dibaca Monitor SPPG)
+    LENSA_STATUS: [['npp', 'npp', 'Ya'], ['div', 'div', ''], ['nama', 'nama', 'Ya'], ['segmen', 'segmen', ''], ['kontak_utama', 'kontak utama', 'Ya']],
+    DATA_BU: [
+      ['npp', 'npp', 'Ya'],
+      ['div', 'div|divisi', ''],
+      ['nama', 'nama pemberi kerja badan usaha|pemberi kerja badan usaha|nama badan usaha|nama perusahaan|nama pk|nama pemberi kerja', 'Ya'],
+      ['blth_keps', 'blth keps|keps awal|keps', ''],
+      ['blth_na', 'blth na', ''],
+      ['kategori', 'kategori pk bu|kategori', ''],
+      ['rate_jkk', 'rate jkk|rate', ''],
+      ['kode_ilo', 'kode ilo', ''],
+      ['nama_ilo', 'nama ilo', ''],
+      ['total_upah', 'total upah', 'Ya'],
+      ['blth_iuran', 'iuran trakhir blth|iuran terakhir blth|blth iuran|blth', ''],
+      ['jumlah_iuran', 'iuran trakhir jumlah|iuran terakhir jumlah|jumlah iuran|jumlah', ''],
+      ['alamat', 'alamat', 'Ya'],
+      ['kabupaten', 'kabupaten|kab kota|kota', ''],
+      ['kode_area', 'kode area', ''],
+      ['telp', 'no telp|telp|telepon|no telepon', ''],
+      ['pic_nama', 'data pic nama|nama pic|pic nama|nama', ''],
+      ['pic_jabatan', 'data pic jabatan|jabatan pic|pic jabatan|jabatan', ''],
+      ['pic_hp', 'data pic no hp|no hp|hp|handphone|no handphone', ''],
+      ['pic_email', 'data pic email|email|e mail', '']
+    ],
+    MONITORING: [
+      ['npp', 'npp', 'Ya'],
+      ['div', 'div|divisi', ''],
+      ['nama', 'pemberi kerja badan usaha|nama pemberi kerja badan usaha|nama badan usaha|nama perusahaan|nama pk|nama', 'Ya'],
+      ['keps_awal', 'keps awal|kepesertaan awal', ''],
+      ['keps_jp', 'keps jp|kepesertaan jp', ''],
+      ['blth_na', 'blth na|na blth', ''],
+      ['skala', 'skala usaha|skala', ''],
+      ['prog', 'prog|program', ''],
+      ['tk_tambah', 'penambahan|tk tambah|tk masuk', ''],
+      ['tk_kurang', 'pengurangan|tk kurang|tk keluar', ''],
+      ['tk_aktif', 'tk aktif|aktif', 'Ya'],
+      ['tk_na', 'tk na|tk nonaktif|tk non aktif', ''],
+      ['tk_jumlah', 'jumlah tk|tk jumlah|jumlah', ''],
+      ['iuran_berjalan', 'total iuran berjalan|iuran berjalan|total iuran', ''],
+      ['tgl_terima', 'tgl penerimaan iuran terakhir|tgl penerimaan iuran terkahir|tgl penerimaan|tanggal penerimaan|tgl terima|penerimaan', 'Ya'],
+      ['blth_entri', 'entri dutk blth|blth entri|entri dutk|blth#1', ''],
+      ['blth_posting', 'posting terakhir blth|blth posting|posting terakhir|blth#2', 'Ya'],
+      ['nilai_posting', 'nilai posting|posting terakhir nilai posting', ''],
+      ['sipp_prs', 'sipp prs|sipp', ''],
+      ['itw', 'itw', ''],
+      ['ibr_ijt', 'ijt|nilai ibr ijt|ibr ijt', ''],
+      ['ibr_idm', 'idm|nilai ibr idm|ibr idm', '']
+    ],
+    ITW_ITB: [
+      ['npp', 'npp', 'Ya'],
+      ['div', 'div|divisi', ''],
+      ['nama', 'nama pemberi kerja badan usaha|pemberi kerja badan usaha|nama badan usaha|nama perusahaan|nama pk|nama', 'Ya'],
+      ['pembina', 'pembina', ''],
+      ['blth_posting', 'itrf blth|blth itrf|blth posting|blth', 'Ya'],
+      ['iuran_terakhir', 'itrf nilai rp|itrf nilai|nilai itrf|iuran terakhir|nilai rp#1', 'Ya'],
+      ['periode_nilai', 'periode penilaian|periode', 'Ya'],
+      ['bln_belum_posting', 'jml bln blm posting|jumlah bulan belum posting|bln blm posting|blm posting|belum posting', 'Ya'],
+      ['ibr_nilai', 'kecukupan ibr nilai rp|ibr nilai rp|ibr nilai|nilai ibr|nilai rp#2', ''],
+      ['ibr_bulan', 'kecukupan ibr jml bulan|ibr jml bulan|jml bulan|jumlah bulan|ibr bulan', 'Ya'],
+      ['koef', 'koef|koefisien', 'Ya'],
+      ['itw', 'itw', 'Ya'],
+      ['itb', 'itb', 'Ya']
+    ],
+    KARTU_IURAN: [
+      ['npp', 'npp', ''],
+      ['blth_iuran', 'blth iuran|bulan iuran', 'Ya'],
+      ['tgl_bayar', 'tanggal bayar|tgl bayar|tanggal pembayaran', 'Ya'],
+      ['jht', 'jht', ''], ['jkk', 'jkk', ''], ['jkm', 'jkm', ''], ['jp', 'jp', ''], ['jkp', 'jkp', ''],
+      ['denda', 'denda', ''],
+      ['total_iuran', 'total iuran', 'Ya'],
+      ['total_upah', 'total upah tk|total upah', ''],
+      ['jumlah_tk', 'jumlah tk|jml tk', '']
+    ],
+    KPI084: [
+      ['bulan', 'bulan', 'Ya'],
+      ['pk_itw', 'pkbu itw', 'Ya'], ['pk_lancar', 'pkbu lancar', 'Ya'], ['pk_kurang_lancar', 'pkbu kurang lancar|pkbu kurang', 'Ya'],
+      ['pk_diragukan', 'pkbu diragukan', 'Ya'], ['pk_macet', 'pkbu macet', 'Ya'],
+      ['mig_itw', 'itw ke menunggak#1', 'Ya'], ['mig_lancar', 'lancar ke kurang lancar#1', 'Ya'],
+      ['mig_kurang_lancar', 'kurang lancar ke diragukan#1', 'Ya'], ['mig_diragukan', 'diragukan ke macet#1', 'Ya'],
+      ['cap_itw', 'itw ke menunggak#2', ''], ['cap_lancar', 'lancar ke kurang lancar#2', ''],
+      ['cap_kurang_lancar', 'kurang lancar ke diragukan#2', ''], ['cap_diragukan', 'diragukan ke macet#2', ''],
+      ['rata_itw', 'itw ke menunggak#3', ''], ['rata_lancar', 'lancar ke kurang lancar#3', ''],
+      ['rata_kurang_lancar', 'kurang lancar ke diragukan#3', ''], ['rata_diragukan', 'diragukan ke macet#3', ''],
+      ['bobot', 'bobot', ''], ['skor', 'skor', '']
+    ],
+    KPI085: [
+      ['npp', 'npp', 'Ya'],
+      ['pembina', 'nama pembina|pembina', 'Ya'],
+      ['nama', 'nama perusahan|nama perusahaan|nama pemberi kerja', ''],
+      ['kelas_lalu', 'piutang*#1', 'Ya'],
+      ['kelas_ini', 'piutang*#2', 'Ya'],
+      ['migrasi', 'migrasi', 'Ya']
+    ]
+  };
+
+  // Urutan kolom seperti cetakan laporan; dipakai bila judul kolom tidak terbaca tetapi jumlah kolom sama.
+  var URUTAN_KOLOM = {
+    ITW_ITB: ['no', 'kci', 'kcp', 'npp', 'div', 'nama', 'pembina', 'blth_posting', 'iuran_terakhir', 'periode_nilai', 'bln_belum_posting', 'ibr_nilai', 'ibr_bulan', 'koef', 'itw', 'itb'],
+    MONITORING: ['no', 'npp', 'div', 'nama', 'keps_awal', 'keps_jp', 'blth_na', 'skala', 'prog', 'tk_tambah', 'tk_kurang', 'tk_aktif', 'tk_na', 'tk_jumlah', 'iuran_berjalan', 'tgl_terima', 'blth_entri', 'blth_posting', 'nilai_posting', 'sipp_prs', 'itw', 'ibr_ijt', 'ibr_idm'],
+    DATA_BU: ['no', 'npp', 'div', 'nama', 'blth_keps', 'blth_na', 'kategori', 'rate_jkk', 'kode_ilo', 'nama_ilo', 'total_upah', 'blth_iuran', 'jumlah_iuran', 'alamat', 'kabupaten', 'kode_area', 'telp', 'pic_nama', 'pic_jabatan', 'pic_hp', 'pic_email'],
+    KARTU_IURAN: ['no', 'blth_iuran', 'tgl_bayar', 'jht', 'jkk', 'jkm', 'jp', 'jkp', 'denda', 'total_iuran', 'total_upah', 'jumlah_tk'],
+    KPI084: ['no', 'bulan', 'pk_itw', 'pk_lancar', 'pk_kurang_lancar', 'pk_diragukan', 'pk_macet', 'mig_itw', 'mig_lancar', 'mig_kurang_lancar', 'mig_diragukan',
+      'cap_itw', 'cap_lancar', 'cap_kurang_lancar', 'cap_diragukan', 'rata_itw', 'rata_lancar', 'rata_kurang_lancar', 'rata_diragukan', 'bobot', 'skor'],
+    KPI085: ['no', 'pembina', 'npp', 'nama', 'kelas_lalu', 'kelas_ini', 'migrasi']
+  };
+
+  var NAMA_LAPORAN = { DATA_BU: 'Data Badan Usaha', MONITORING: 'Monitoring', ITW_ITB: 'ITW/ITB', KARTU_IURAN: 'Kartu Iuran', KPI084: 'KPI084 Rekap Migrasi Piutang', KPI085: 'KPI085 Detil Migrasi Piutang', LENSA_STATUS: 'STATUS_PK (LENSA)' };
+  var BULAN_SINGKAT = { jan: 1, feb: 2, mar: 3, apr: 4, mei: 5, may: 5, jun: 6, jul: 7, agu: 8, ags: 8, agt: 8, aug: 8, sep: 9, okt: 10, oct: 10, nov: 11, des: 12, dec: 12 };
+  var BULAN_KPI = /^(jan|feb|mar|apr|mei|may|jun|jul|agu|ags|agt|aug|sep|okt|oct|nov|des|dec)[a-z]*$/;
+  var TIPE_KOLOM = {
+    no: 'bulat', npp: 'npp', div: 'div', nama: 'teks', kci: 'kode', kcp: 'kode', pembina: 'pembina',
+    blth_keps: 'blth', blth_na: 'blth', kategori: 'teks', rate_jkk: 'desimal', kode_ilo: 'ilo', nama_ilo: 'teks',
+    total_upah: 'angka', blth_iuran: 'blth', jumlah_iuran: 'angka', alamat: 'teks', kabupaten: 'teks', kode_area: 'digit',
+    telp: 'digit', pic_nama: 'teks', pic_jabatan: 'teks', pic_hp: 'digit', pic_email: 'email',
+    blth_posting: 'blth', iuran_terakhir: 'angka', periode_nilai: 'blth', bln_belum_posting: 'bulat', ibr_nilai: 'angka',
+    ibr_bulan: 'bulat', koef: 'bulat', itw: 'yt', itb: 'yt',
+    keps_awal: 'blth', keps_jp: 'blth', skala: 'skala', prog: 'prog', tk_tambah: 'bulat', tk_kurang: 'bulat', tk_aktif: 'bulat',
+    tk_na: 'bulat', tk_jumlah: 'bulat', iuran_berjalan: 'angka', tgl_terima: 'tgl', blth_entri: 'blth', nilai_posting: 'angka',
+    sipp_prs: 'sipp', ibr_ijt: 'angka', ibr_idm: 'angka',
+    tgl_bayar: 'tgl', jht: 'angka', jkk: 'angka', jkm: 'angka', jp: 'angka', jkp: 'angka', denda: 'angka', total_iuran: 'angka',
+    jumlah_tk: 'bulat', kelas_lalu: 'kelas', kelas_ini: 'kelas', migrasi: 'yatidak'
+  };
+  var SERING_KOSONG = { blth_na: 1, kategori: 1, keps_jp: 1, prog: 1, jkp: 1, denda: 1 };
+
+  function pad2(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
+
+  function norm(s) {
+    return String(s === null || s === undefined ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  function judulKata(s) {
+    return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+      .replace(/(^|[\s\-\.\(\/'])([a-z])/g, function (m, a, b) { return a + b.toUpperCase(); });
+  }
+
+  function keAngka(v, desimal) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    var s = String(v).trim().replace(/\s/g, '').replace(/^rp\.?/i, '');
+    if (!s || s === '-' || s === '--') return null;
+    var neg = false;
+    if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
+    if (s.charAt(0) === '-') { neg = true; s = s.slice(1); }
+    var titik = s.indexOf('.') >= 0, koma = s.indexOf(',') >= 0;
+    if (titik && koma) {
+      if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+      else s = s.replace(/,/g, '');
+    } else if (koma) {
+      if (/^\d{1,3}(,\d{3})+$/.test(s) && !desimal) s = s.replace(/,/g, '');
+      else if (/^\d{1,3}(,\d{3}){2,}$/.test(s)) s = s.replace(/,/g, '');
+      else s = s.replace(',', '.');
+    } else if (titik) {
+      if (/^\d{1,3}(\.\d{3})+$/.test(s) && !desimal) s = s.replace(/\./g, '');
+      else if (/^\d{1,3}(\.\d{3}){2,}$/.test(s)) s = s.replace(/\./g, '');
+    }
+    if (!/^\d*\.?\d+$/.test(s)) return null;
+    var n = parseFloat(s);
+    return neg ? -n : n;
+  }
+
+  function tahun4(y) { y = String(y); return y.length === 2 ? (+y > 50 ? '19' : '20') + y : y; }
+
+  function ymd(y, m, d) {
+    y = +y; m = +m; d = +d;
+    if (!y || m < 1 || m > 12 || d < 1 || d > 31) return '';
+    return y + '-' + pad2(m) + '-' + pad2(d);
+  }
+
+  function keTanggal(v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (v instanceof Date) return isNaN(v.getTime()) ? '' : CFG.tglLokal(v);
+    if (typeof v === 'number') {
+      if (v > 20000 && v < 80000) {
+        var d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+        return ymd(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+      }
+      return '';
+    }
+    var s = String(v).trim().toLowerCase().replace(/[t\s]+\d{1,2}[:.]\d{2}([:.]\d{2})?.*$/, '');
+    var m;
+    if ((m = s.match(/^(\d{4})[\-\/\.](\d{1,2})[\-\/\.](\d{1,2})$/))) return ymd(m[1], m[2], m[3]);
+    if ((m = s.match(/^(\d{1,2})[\-\/\.](\d{1,2})[\-\/\.](\d{2}|\d{4})$/))) return ymd(tahun4(m[3]), m[2], m[1]);
+    if ((m = s.match(/^(\d{1,2})[\-\/\. ]([a-z]{3})[a-z]*[\-\/\. ](\d{2}|\d{4})$/))) {
+      var b = BULAN_SINGKAT[m[2]];
+      if (b) return ymd(tahun4(m[3]), b, m[1]);
+    }
+    return '';
+  }
+
+  function keBlth(v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (v instanceof Date) return isNaN(v.getTime()) ? '' : CFG.tglLokal(v).slice(0, 7);
+    var s = String(v).trim().toLowerCase();
+    var m, bln;
+    if ((m = s.match(/^(\d{1,2})[\-\/\.](\d{4})$/))) bln = [m[2], m[1]];
+    else if ((m = s.match(/^(\d{4})[\-\/\.](\d{1,2})$/))) bln = [m[1], m[2]];
+    else if ((m = s.match(/^([a-z]{3})[a-z]*[\-\/\. ](\d{2}|\d{4})$/)) && BULAN_SINGKAT[m[1]]) bln = [tahun4(m[2]), BULAN_SINGKAT[m[1]]];
+    else if ((m = s.match(/^((?:19|20)\d{2})(0[1-9]|1[0-2])$/))) bln = [m[1], m[2]];
+    else if ((m = s.match(/^(0[1-9]|1[0-2])((?:19|20)\d{2})$/))) bln = [m[2], m[1]];
+    if (bln) {
+      var bb = +bln[1];
+      return (bb >= 1 && bb <= 12) ? bln[0] + '-' + pad2(bb) : '';
+    }
+    var t = keTanggal(v);
+    return t ? t.slice(0, 7) : '';
+  }
+
+  function keYT(v) {
+    var s = String(v === null || v === undefined ? '' : v).trim().toUpperCase();
+    if (/^(Y|YA|YES|TRUE|1)$/.test(s)) return 'Y';
+    if (/^(T|TIDAK|N|NO|FALSE|0)$/.test(s)) return 'T';
+    return '';
+  }
+
+  function rapikanNpp(v) {
+    var s = String(v === null || v === undefined ? '' : v).trim().toUpperCase().replace(/^'/, '').replace(/\s/g, '');
+    if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+    if (/^\d{7}$/.test(s)) s = '0' + s;
+    return /^[A-Z]{2}\d{6}$|^\d{8}$/.test(s) ? s : '';
+  }
+
+  function rapikanDiv(v) {
+    var s = String(v === null || v === undefined ? '' : v).trim().replace(/^'/, '').replace(/\.0+$/, '');
+    if (!s) return '000';
+    return /^\d{1,3}$/.test(s) ? ('000' + s).slice(-3) : s;
+  }
+
+  function rusakExcel(v) { return /^\s*\d+(\.\d+)?e\+?\d+\s*$/i.test(String(v === null || v === undefined ? '' : v)); }
+
+  function kelasDariTeks(s) {
+    var n = norm(s);
+    if (!n) return '';
+    if (n === 'itw') return 'itw';
+    if (n.indexOf('kurang') === 0) return 'kurang_lancar';
+    if (n.indexOf('lancar') === 0) return 'lancar';
+    if (n.indexOf('ragu') >= 0) return 'diragukan';
+    if (n.indexOf('macet') >= 0) return 'macet';
+    return '';
+  }
+
+  function uraiCsv(teks, pemisah) {
+    teks = String(teks || '').replace(/^\uFEFF/, '');
+    var baris = [], sel = '', row = [], kutip = false, i = 0, n = teks.length;
+    while (i < n) {
+      var ch = teks.charAt(i);
+      if (kutip) {
+        if (ch === '"') {
+          if (teks.charAt(i + 1) === '"') { sel += '"'; i += 2; continue; }
+          kutip = false; i++; continue;
+        }
+        sel += ch; i++; continue;
+      }
+      if (ch === '"' && sel === '') { kutip = true; i++; continue; }
+      if (ch === pemisah) { row.push(sel); sel = ''; i++; continue; }
+      if (ch === '\r') { i++; continue; }
+      if (ch === '\n') { row.push(sel); baris.push(row); row = []; sel = ''; i++; continue; }
+      sel += ch; i++;
+    }
+    if (sel !== '' || row.length) { row.push(sel); baris.push(row); }
+    return baris.map(function (r) { return r.map(function (x) { return String(x).trim(); }); });
+  }
+
+  function deteksiPemisah(teks) {
+    var contoh = String(teks || '').split(/\r?\n/).slice(0, 60).join('\n');
+    var terbaik = ',', skor = -1;
+    [',', ';', '\t', '|'].forEach(function (p) {
+      var g = uraiCsv(contoh, p);
+      var lebar = g.map(function (r) { return r.length; }).sort(function (a, b) { return b - a; });
+      var s = lebar.length ? lebar[Math.floor(lebar.length / 4)] : 0;
+      if (s > skor) { skor = s; terbaik = p; }
+    });
+    return terbaik;
+  }
+
+  function aliasSemua() {
+    var set = {};
+    CFG.jenis.forEach(function (lap) {
+      pemetaan(lap).forEach(function (d) {
+        d.alias.forEach(function (a) { set[norm(a.replace(/#\d+$/, ''))] = true; });
+      });
+    });
+    delete set[''];
+    return set;
+  }
+
+  function barisData(row) {
+    var adaNpp = false, adaBlth = false, adaTgl = false, adaBulan = false, angka = 0;
+    for (var i = 0; i < row.length; i++) {
+      var x = String(row[i] || '').trim();
+      if (!x) continue;
+      if (/^(jan|feb|mar|apr|mei|may|jun|jul|agu|ags|aug|sep|okt|oct|nov|des|dec)$/i.test(x)) adaBulan = true;
+      if (keAngka(x) !== null) angka++;
+      if (/^[A-Z]{2}\d{6}$/i.test(x)) adaNpp = true;
+      else if (/^\d{7,8}$/.test(x) && !/^(19|20)\d{2}(0[1-9]|1[0-2])([0-2]\d|3[01])$/.test(x)) adaNpp = true;
+      else if (/^\d{1,2}[\-\/]\d{4}$/.test(x)) adaBlth = true;
+      else if (/^\d{1,2}[\-\/]\d{1,2}[\-\/]\d{2,4}$/.test(x)) adaTgl = true;
+    }
+    return adaNpp || (adaBlth && adaTgl) || (adaBulan && angka >= 8);
+  }
+
+  function barisJudulKelompok(row) {
+    var isi = row.filter(function (x) { return String(x || '').trim() !== ''; });
+    if (isi.length < 2) return false;
+    for (var i = 0; i < isi.length; i++) if (String(isi[i]).indexOf(':') >= 0) return false;
+    return true;
+  }
+
+  function analisaGrid(grid, namaFile) {
+    var semua = aliasSemua();
+    var terbaik = -1, skorTerbaik = 0;
+    var batas = Math.min(grid.length, 80);
+    for (var r = 0; r < batas; r++) {
+      var skor = 0;
+      for (var c = 0; c < grid[r].length; c++) {
+        var h = norm(grid[r][c]);
+        if (h && semua[h]) skor++;
+      }
+      if (skor > skorTerbaik) { skorTerbaik = skor; terbaik = r; }
+    }
+    if (skorTerbaik < 3) {
+      // judul kolom tidak dikenali: pakai baris tepat di atas data pertama, lalu andalkan urutan kolom
+      terbaik = -2;
+      for (var rr = 0; rr < batas; rr++) if (barisData(grid[rr])) { terbaik = rr - 1; break; }
+      if (terbaik === -2) throw new Error('Judul kolom laporan tidak ditemukan dan tidak ada baris NPP. Pastikan file adalah hasil ekspor laporan sistem (CSV/XLSX).');
+    }
+
+    var mulai = -1;
+    for (var r2 = terbaik + 1; r2 < grid.length; r2++) {
+      if (barisData(grid[r2])) { mulai = r2; break; }
+    }
+    if (mulai < 0) throw new Error('Tidak ada baris data (NPP) di bawah judul kolom.');
+
+    var atas = terbaik < 0 ? mulai : terbaik;
+    for (var k = 1; k <= 4 && terbaik >= 0 && terbaik - k >= 0; k++) {
+      if (barisJudulKelompok(grid[terbaik - k])) atas = terbaik - k;
+      else break;
+    }
+    var lebar = 0;
+    for (var r3 = atas; r3 < Math.min(grid.length, mulai + 5); r3++) lebar = Math.max(lebar, grid[r3].length);
+    var bagian = [], gabung = [];
+    for (var c2 = 0; c2 < lebar; c2++) {
+      var p = [];
+      for (var r4 = atas; r4 < mulai; r4++) {
+        var t = norm(grid[r4][c2]);
+        if (t) p.push(t);
+      }
+      bagian.push(p);
+      gabung.push(p.join(' '));
+    }
+    var dataPertama = grid[mulai], lebarData = 0;
+    for (var c3 = 0; c3 < dataPertama.length; c3++) if (String(dataPertama[c3]).trim() !== '') lebarData = c3 + 1;
+
+    // teks di luar tabel (judul atas dan catatan bawah) untuk tanggal cetak, periode, pembina
+    var luar = grid.slice(0, atas).map(function (x) { return x.join(' '); });
+    for (var r5 = mulai; r5 < grid.length; r5++) {
+      if (!barisData(grid[r5])) luar.push(grid[r5].join(' '));
+    }
+    var an = {
+      kepala: terbaik, atas: atas, mulai: mulai, lebar: lebar, lebarData: lebarData,
+      bagian: bagian, gabung: gabung, judulTeks: luar.join('\n'), namaFile: namaFile || ''
+    };
+    an.jenis = tebakJenis(gabung.join(' | '), namaFile);
+    return an;
+  }
+
+  /** Aturan pengenal jenis laporan. Jenis yang tidak dipakai aplikasi ini: ditolak dengan pesannya (CFG.tolak) atau dilewati. */
+  var ATURAN_JUDUL = [
+    ['LENSA_STATUS', function (t) { return /kontak utama/.test(t) && /(status bayar|segmen)/.test(t); }],
+    ['KPI084', function (t) { return /pkbu itw/.test(t) && /menunggak/.test(t); }],
+    ['KPI085', function (t) { return /migrasi/.test(t) && /piutang/.test(t) && /pembina/.test(t); }],
+    ['ITW_ITB', function (t) { return / koef/.test(t) && / itb /.test(t); }],
+    ['ITW_ITB', function (t) { return /kecukupan ibr/.test(t) && /(blm posting|belum posting|penilaian)/.test(t); }],
+    ['KARTU_IURAN', function (t) { return /blth iuran/.test(t) && /(tanggal|tgl) bayar/.test(t); }],
+    ['MONITORING', function (t) { return /(penambahan|pengurangan)/.test(t) && /aktif/.test(t); }],
+    ['DATA_BU', function (t) { return /(nama ilo|kode ilo|rate jkk)/.test(t); }]
+  ];
+  var ATURAN_FILE = [
+    ['KPI084', /kpi\s*_?084/], ['KPI085', /kpi\s*_?085/], ['LENSA_STATUS', /status.?pk/], ['ITW_ITB', /itw|itb/], ['KARTU_IURAN', /kartu/],
+    ['MONITORING', /monitor/], ['DATA_BU', /badan.?usaha|dbu|data.?bu/]
+  ];
+  function dipakai(j) { return CFG.jenis.indexOf(j) >= 0; }
+  function tebakJenis(teks, namaFile) {
+    var t = ' ' + teks + ' ', i;
+    for (i = 0; i < ATURAN_JUDUL.length; i++) {
+      var a = ATURAN_JUDUL[i];
+      if (!a[1](t)) continue;
+      if (dipakai(a[0])) return a[0];
+      if (CFG.tolak[a[0]]) throw new Error(CFG.tolak[a[0]]);
+    }
+    var f = String(namaFile || '').toLowerCase();
+    for (i = 0; i < ATURAN_FILE.length; i++) if (dipakai(ATURAN_FILE[i][0]) && ATURAN_FILE[i][1].test(f)) return ATURAN_FILE[i][0];
+    throw new Error('Jenis laporan tidak dikenali dari judul kolom maupun nama file.');
+  }
+
+  function cariKolom(an, alias, dipakai) {
+    var m = String(alias).match(/^(.*?)(\*)?(?:#(\d+))?$/);
+    var a = norm(m[1]), awalan = !!m[2], ke = m[3] ? +m[3] : 1, berurut = !!m[3];
+    if (!a) return -1;
+    var cocok = [], c;
+    var sama = function (c) { return an.gabung[c] === a || an.bagian[c].indexOf(a) >= 0; };
+    var memuat = function (c) { return (' ' + an.gabung[c] + ' ').indexOf(' ' + a + ' ') >= 0; };
+    if (awalan) {
+      for (c = 0; c < an.lebar; c++) {
+        if (an.gabung[c].indexOf(a) === 0 || an.bagian[c].some(function (p) { return p.indexOf(a) === 0; })) cocok.push(c);
+      }
+      return cocok.length >= ke ? cocok[ke - 1] : -1;
+    }
+    // #n: kolom ke-n (urut kiri ke kanan) yang judulnya sama atau memuat alias
+    if (berurut) {
+      for (c = 0; c < an.lebar; c++) if (sama(c) || memuat(c)) cocok.push(c);
+      return cocok.length >= ke ? cocok[ke - 1] : -1;
+    }
+    for (c = 0; c < an.lebar; c++) {
+      if (dipakai[c]) continue;
+      if (sama(c)) cocok.push(c);
+    }
+    if (!cocok.length) {
+      for (c = 0; c < an.lebar; c++) {
+        if (dipakai[c]) continue;
+        if (memuat(c)) cocok.push(c);
+      }
+      cocok.sort(function (x, y) { return x - y; });
+    }
+    return cocok.length >= ke ? cocok[ke - 1] : -1;
+  }
+
+  function cocokTipe(tipe, x) {
+    switch (tipe) {
+      case 'bulat': return /^-?(\d{1,3}(,\d{3})+|\d+)$/.test(x);
+      case 'angka': return keAngka(x) !== null;
+      case 'desimal': var a = keAngka(x, true); return a !== null && a < 100;
+      case 'digit': return /^[\d\s\-\+\(\)\/]{3,}$/.test(x) || rusakExcel(x);
+      case 'ilo': return /^\d{3,5}$/.test(x);
+      case 'blth': return !!keBlth(x) && !keTanggal(x) && !/^\d+$/.test(x);
+      case 'tgl': return !!keTanggal(x);
+      case 'teks': return /[A-Za-z]{2,}/.test(x) && !keBlth(x) && x.indexOf('@') < 0 && !/^(ya|tidak)$/i.test(x);
+      case 'email': return x.indexOf('@') > 0;
+      case 'npp': return !!rapikanNpp(x);
+      case 'div': return /^\d{1,3}$/.test(x);
+      case 'kode': return /^[A-Z]\d{2}$/i.test(x);
+      case 'pembina': return /^[A-Z]{2}\d{6}/i.test(x) || (/[A-Za-z]{3,}/.test(x) && !keBlth(x));
+      case 'yt': return /^(Y|T)$/i.test(x);
+      case 'yatidak': return /^(YA|TIDAK|Y|T)$/i.test(x);
+      case 'skala': return /^(B|Mn|K|Mi|MI|M)$/.test(x);
+      case 'prog': return /^\dP$/i.test(x);
+      case 'sipp': return /^(-|sipp|prs|sipp\/prs)$/i.test(x);
+      case 'kelas': return !!kelasDariTeks(x);
+    }
+    return true;
+  }
+
+  function barisContoh(an, grid) {
+    var out = [];
+    for (var r = an.mulai; r < grid.length && out.length < 150; r++) if (barisData(grid[r])) out.push(grid[r]);
+    return out;
+  }
+
+  function skorPeta(jenis, peta, contoh) {
+    var def = pemetaan(jenis), wajib = {};
+    def.forEach(function (d) { if (d.wajib) wajib[d.kolom] = true; });
+    var total = 0, ok = true, buruk = [];
+    Object.keys(peta).forEach(function (k) {
+      var tipe = TIPE_KOLOM[k];
+      if (!tipe) return;
+      var isi = 0, pas = 0;
+      contoh.forEach(function (row) {
+        var x = String(row[peta[k]] === undefined ? '' : row[peta[k]]).trim();
+        if (!x) return;
+        isi++;
+        if (cocokTipe(tipe, x)) pas++;
+      });
+      total += pas - (isi - pas);
+      if (wajib[k] && (!isi || pas / isi < 0.8)) { ok = false; buruk.push(k); }
+    });
+    return { total: total, ok: ok, buruk: buruk };
+  }
+
+  function petakanIsi(jenis, contoh) {
+    var urut = URUTAN_KOLOM[jenis];
+    if (!urut || !contoh.length) return null;
+    var lebar = 0;
+    contoh.forEach(function (r) { lebar = Math.max(lebar, r.length); });
+    var slot = [];
+    for (var c = 0; c < lebar; c++) {
+      if (contoh.some(function (r) { return String(r[c] === undefined ? '' : r[c]).trim() !== ''; })) slot.push(c);
+    }
+    var def = pemetaan(jenis), wajib = {};
+    def.forEach(function (d) { if (d.wajib) wajib[d.kolom] = true; });
+    var nilai = {};
+    function skor(i, j) {
+      var key = i + '|' + j;
+      if (nilai[key] !== undefined) return nilai[key];
+      var tipe = TIPE_KOLOM[urut[i]], isi = 0, pas = 0;
+      contoh.forEach(function (r) {
+        var x = String(r[slot[j]] === undefined ? '' : r[slot[j]]).trim();
+        if (!x) return;
+        isi++;
+        if (!tipe || cocokTipe(tipe, x)) pas++;
+      });
+      return (nilai[key] = isi ? pas / isi : 0);
+    }
+    var n = urut.length, m = slot.length, NEG = -1e9;
+    var dp = [], dari = [];
+    for (var i = 0; i <= n; i++) { dp.push([]); dari.push([]); for (var j = 0; j <= m; j++) { dp[i].push(NEG); dari[i].push(''); } }
+    dp[0][0] = 0;
+    for (i = 0; i <= n; i++) {
+      for (j = 0; j <= m; j++) {
+        var v = dp[i][j];
+        if (v === NEG) continue;
+        if (i < n && j < m) { var a = v + skor(i, j); if (a > dp[i + 1][j + 1]) { dp[i + 1][j + 1] = a; dari[i + 1][j + 1] = 'p'; } }
+        if (i < n) { var b = v - (wajib[urut[i]] ? 3 : SERING_KOSONG[urut[i]] ? 0.1 : 0.4); if (b > dp[i + 1][j]) { dp[i + 1][j] = b; dari[i + 1][j] = 'k'; } }
+        if (j < m) { var d = v - 0.6; if (d > dp[i][j + 1]) { dp[i][j + 1] = d; dari[i][j + 1] = 's'; } }
+      }
+    }
+    var peta = {};
+    i = n; j = m;
+    while (i > 0 || j > 0) {
+      var arah = dari[i][j];
+      if (arah === 'p') { peta[urut[i - 1]] = slot[j - 1]; i--; j--; }
+      else if (arah === 'k') i--;
+      else j--;
+    }
+    delete peta.no;
+    return peta;
+  }
+
+  function petakanKolom(an, grid) {
+    var contoh = grid ? barisContoh(an, grid) : [];
+    var judul = null, galatJudul = null;
+    try { judul = petakanJudul(an); } catch (e) { galatJudul = e; }
+    if (!contoh.length || an.jenis === 'KPI084' || !URUTAN_KOLOM[an.jenis]) {
+      if (galatJudul) throw galatJudul;
+      return judul;
+    }
+    var sJudul = judul ? skorPeta(an.jenis, judul, contoh) : null;
+    var isi = petakanIsi(an.jenis, contoh);
+    var sIsi = isi ? skorPeta(an.jenis, isi, contoh) : null;
+    if (sJudul && sJudul.ok && (!sIsi || !sIsi.ok || sIsi.total <= sJudul.total * 1.05)) return judul;
+    if (sIsi && sIsi.ok) {
+      an.posisi = false;
+      an.menurutIsi = true;
+      return isi;
+    }
+    if (galatJudul) throw galatJudul;
+    throw new Error('Isi kolom tidak sesuai dengan laporan ' + NAMA_LAPORAN[an.jenis] + ' (kolom bermasalah: ' + ((sJudul && sJudul.buruk) || []).join(', ') +
+      ').' + (CFG.saranPemetaan ? ' Kirim baris judul kolom file ini ke pengembang, atau sesuaikan tab PEMETAAN.' : ''));
+  }
+
+  function petakanJudul(an) {
+    var def = pemetaan(an.jenis);
+    var peta = {}, dipakai = {};
+    def.forEach(function (d) {
+      var c = -1;
+      for (var i = 0; i < d.alias.length && c < 0; i++) c = cariKolom(an, d.alias[i], dipakai);
+      if (c >= 0) { peta[d.kolom] = c; dipakai[c] = true; }
+    });
+    var kurang = def.filter(function (d) { return d.wajib && peta[d.kolom] === undefined; }).map(function (d) { return d.kolom; });
+    if (kurang.length) {
+      var urut = URUTAN_KOLOM[an.jenis];
+      if (urut && (an.lebarData === urut.length || an.lebar === urut.length)) {
+        peta = {};
+        urut.forEach(function (k, i) { peta[k] = i; });
+        kurang = [];
+        an.posisi = true;
+      }
+    }
+    if (kurang.length) {
+      var judul = an.gabung.filter(String).join(' | ');
+      throw new Error('Kolom wajib tidak ditemukan: ' + kurang.join(', ') + '. Judul kolom di file: ' + judul +
+        '.' + (CFG.saranPemetaan ? ' Tambahkan judul yang sesuai di tab PEMETAAN (kolom judul_di_laporan).' : ''));
+    }
+    return peta;
+  }
+
+  function ambilBaris(an, peta, grid) {
+    var out = [], prev = null;
+    for (var r = an.mulai; r < grid.length; r++) {
+      var row = grid[r];
+      var o = {};
+      Object.keys(peta).forEach(function (k) {
+        var x = row[peta[k]];
+        o[k] = x === undefined || x === null ? '' : String(x).trim();
+      });
+      if (an.jenis === 'KARTU_IURAN') {
+        if (!/^\d/.test(o.blth_iuran) || !keBlth(o.blth_iuran)) continue;
+        out.push(o);
+        continue;
+      }
+      if (an.jenis === 'KPI084') {
+        var bl = norm(o.bulan);
+        if (!BULAN_SINGKAT[bl.slice(0, 3)] || !/^[a-z]+$/.test(bl)) continue;
+        if (out.some(function (x) { return norm(x.bulan) === bl; })) break; // blok kedua (konsolidasi)
+        out.push(o);
+        continue;
+      }
+      var npp = rapikanNpp(o.npp);
+      if (npp) {
+        o.npp = npp;
+        o.div = rapikanDiv(o.div);
+        out.push(o);
+        prev = o;
+        continue;
+      }
+      var isi = row.filter(function (x) { return String(x || '').trim() !== ''; });
+      if (!isi.length) { prev = null; continue; }
+      var adaTitikDua = isi.some(function (x) { return String(x).indexOf(':') >= 0 || /^-/.test(String(x).trim()); });
+      if (prev && an.jenis === 'DATA_BU' && !adaTitikDua) {
+        ['nama', 'nama_ilo', 'alamat', 'pic_nama', 'pic_jabatan'].forEach(function (k) {
+          if (o[k]) prev[k] = (prev[k] ? prev[k] + ' ' : '') + o[k];
+        });
+        if (o.pic_email) prev.pic_email = (prev.pic_email || '') + o.pic_email;
+      } else {
+        prev = null;
+      }
+    }
+    return out;
+  }
+
+  function tentukanPeriode(an) {
+    var t = an.judulTeks || '', m, cetak = '';
+    m = t.match(/(?:tanggal cetak|tgl\.? cetak|tanggal|tgl)\s*:?\s*(\d{1,2}[\-\/\.]\d{1,2}[\-\/\.]\d{2,4})/i);
+    if (m) cetak = keTanggal(m[1]);
+    if (!cetak) {
+      m = t.match(/periode\s*:?\s*(\d{1,2}[\-\/\. ][a-z]{3}[a-z]*[\-\/\. ]\d{2,4})/i);
+      if (m) cetak = keTanggal(m[1]);
+    }
+    if (!cetak) {
+      var f = an.namaFile || '';
+      m = f.match(/((?:19|20)\d{2})[\-_\.]?(0[1-9]|1[0-2])[\-_\.]?([0-2]\d|3[01])/);
+      if (m) cetak = ymd(m[1], m[2], m[3]);
+      else if ((m = f.match(/([0-2]\d|3[01])[\-_\.](0[1-9]|1[0-2])[\-_\.]((?:19|20)\d{2})/))) cetak = ymd(m[3], m[2], m[1]);
+    }
+    var dariJudul = !!cetak;
+    var kini = CFG.hariIni();
+    if (!cetak || cetak > kini) cetak = kini;
+    var lap = '';
+    m = t.match(/periode\s*:?\s*(\d{1,2}[\-\/]\d{4})(?!\d)/i);
+    if (m) lap = keBlth(m[1]);
+    var pembina = '', namaPembina = '';
+    m = t.match(/pembina\s*:?\s*([A-Z]{2}\d{6})(?:\s*-\s*([A-Za-z][A-Za-z .,'\-]+))?/i);
+    if (m) { pembina = m[1].toUpperCase(); namaPembina = m[2] ? judulKata(m[2].replace(/\s{2,}.*$/, '')) : ''; }
+    return { tanggal: cetak, dariJudul: dariJudul, laporan: lap, pembina: pembina, namaPembina: namaPembina };
+  }
+
+  function cekPosisi(jenis, data) {
+    var uji = {
+      ITW_ITB: function (o) { return keBlth(o.periode_nilai) && keYT(o.itw) && keYT(o.itb); },
+      MONITORING: function (o) { return (!o.blth_posting || keBlth(o.blth_posting)) && (!o.tgl_terima || keTanggal(o.tgl_terima)) && /^(B|Mn|K|Mi|MI|)$/.test(String(o.skala).trim()); },
+      DATA_BU: function (o) { return keAngka(o.total_upah) !== null && (!o.blth_iuran || keBlth(o.blth_iuran)); },
+      KARTU_IURAN: function (o) { return keTanggal(o.tgl_bayar) && keAngka(o.total_iuran) !== null; },
+      KPI084: function (o) { return keAngka(o.pk_itw) !== null && keAngka(o.mig_itw) !== null; },
+      KPI085: function (o) { return kelasDariTeks(o.kelas_lalu) && /^(YA|TIDAK|Y|T)$/i.test(String(o.migrasi).trim()); }
+    }[jenis];
+    if (!uji) return;
+    var cocok = data.filter(uji).length;
+    if (cocok < data.length * 0.9) {
+      throw new Error('Judul kolom tidak dikenali dan isi kolom tidak sesuai urutan ' + NAMA_LAPORAN[jenis] + ' (' + cocok + ' dari ' + data.length +
+        ' baris cocok).' + (CFG.saranPemetaan ? ' Tambahkan judul kolom yang dipakai file ini di tab PEMETAAN.' : ''));
+    }
+  }
+
+  function ambilKpi084(grid) {
+    var kunci = ['pk_itw', 'pk_lancar', 'pk_kurang_lancar', 'pk_diragukan', 'pk_macet', 'mig_itw', 'mig_lancar', 'mig_kurang_lancar', 'mig_diragukan',
+      'cap_itw', 'cap_lancar', 'cap_kurang_lancar', 'cap_diragukan', 'rata_itw', 'rata_lancar', 'rata_kurang_lancar', 'rata_diragukan', 'bobot', 'skor'];
+    var out = [], lihat = {};
+    grid.forEach(function (row) {
+      for (var c = 0; c < row.length; c++) {
+        var x = norm(row[c]);
+        if (!/^[a-z]{3,9}$/.test(x) || !BULAN_SINGKAT[x.slice(0, 3)] || !BULAN_KPI.test(x)) continue;
+        var angka = [];
+        for (var d = c + 1; d < row.length && angka.length < kunci.length; d++) {
+          var s = String(row[d] === undefined ? '' : row[d]).trim();
+          if (!s) continue;
+          var a = keAngka(s, true);
+          if (a === null) { angka = null; break; }
+          angka.push(s);
+        }
+        if (!angka || angka.length < 9) continue;
+        var b = x.slice(0, 3);
+        if (lihat[b]) return; // blok kedua (konsolidasi) sama isinya
+        lihat[b] = true;
+        var o = { bulan: x };
+        kunci.forEach(function (k, i) { o[k] = angka[i] === undefined ? '' : angka[i]; });
+        out.push(o);
+        return;
+      }
+    });
+    return out;
+  }
+
+  function bacaRekapItw(grid) {
+    for (var r = 0; r < grid.length; r++) {
+      var row = grid[r].map(norm);
+      if (row.indexOf('jml itw') >= 0 || row.indexOf('jumlah itw') >= 0) {
+        for (var k = r + 1; k < Math.min(grid.length, r + 5); k++) {
+          var angka = [];
+          grid[k].forEach(function (x) {
+            var s = String(x || '').trim();
+            if (!s || s.indexOf('%') >= 0) return;
+            var a = keAngka(s);
+            if (a !== null) angka.push(a);
+          });
+          if (angka.length >= 4) return { aktif: angka[0], itw: angka[1], target: angka[2], itb: angka[3] };
+        }
+      }
+    }
+    return null;
+  }
+  /* ---------------- pemetaan judul kolom (bawaan + tab PEMETAAN) ---------------- */
+
+  var _PEMETAAN = null;
+  function pemetaan(lap) {
+    if (!_PEMETAAN) {
+      var p = {};
+      Object.keys(DEF_PEMETAAN).forEach(function (l) {
+        p[l] = DEF_PEMETAAN[l].map(function (d) { return { kolom: d[0], alias: d[1].split('|'), wajib: d[2] === 'Ya' }; });
+      });
+      var tambahan = [];
+      try { tambahan = CFG.tambahan() || []; } catch (e) { tambahan = []; }
+      tambahan.forEach(function (o) {
+        var l = String(o.laporan).trim(), k = String(o.kolom_lensa).trim();
+        if (!p[l] || !k) return;
+        var alias = String(o.judul_di_laporan || '').split('|').map(function (x) { return x.trim(); }).filter(String);
+        var ada = null;
+        p[l].forEach(function (d) { if (d.kolom === k) ada = d; });
+        if (ada) {
+          // alias dari tab PEMETAAN didahulukan, alias bawaan tetap jadi cadangan
+          ada.alias = alias.concat(ada.alias.filter(function (a) { return alias.indexOf(a) < 0; }));
+          ada.wajib = String(o.wajib).trim() === 'Ya' || ada.wajib;
+        } else if (alias.length) {
+          p[l].push({ kolom: k, alias: alias, wajib: String(o.wajib).trim() === 'Ya' });
+        }
+      });
+      _PEMETAAN = p;
+    }
+    return _PEMETAAN[lap] || [];
+  }
+
+  /* ---------------- SPPG ---------------- */
+
+  /** Nama badan usaha program Makan Bergizi (Satuan Pelayanan Pemenuhan Gizi). */
+  function adalahSppg(nama) {
+    var n = ' ' + String(nama || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ') + ' ';
+    return / SPPG |PEMENUHAN GIZI/.test(n);
+  }
+
+  /* ---------------- urai utuh ---------------- */
+
+  /** grid (baris × sel teks) → { an, peta, data, per, rekap }. Galat bila jenis/kolom tidak dikenali. */
+  function urai(grid, namaFile) {
+    var an = analisaGrid(grid, namaFile);
+    var peta = an.jenis === 'KPI084' ? {} : petakanKolom(an, grid);
+    var data = an.jenis === 'KPI084' ? ambilKpi084(grid) : ambilBaris(an, peta, grid);
+    if (!data.length) throw new Error('Tidak ada baris data yang terbaca.');
+    if (an.posisi) cekPosisi(an.jenis, data);
+    return { an: an, peta: peta, data: data, per: tentukanPeriode(an), rekap: an.jenis === 'ITW_ITB' ? bacaRekapItw(grid) : null, namaFile: namaFile || '' };
+  }
+  function uraiTeks(teks, namaFile) { return urai(uraiCsv(teks, deteksiPemisah(teks)), namaFile); }
+
+  /* ---------------- laporan ringkas (dikirim ke Gudang) ---------------- */
+
+  /** Jenis yang disimpan di Gudang Laporan KC (Kartu Iuran tetap di LENSA; Status PK hanya Monitor). */
+  var GUDANG = { ITW_ITB: true, MONITORING: true, DATA_BU: true, KPI084: true, KPI085: true };
+  var MAKS_JUDUL_TEKS = 4000;
+
+  /** Hasil urai → laporan ringkas: hanya kolom yang terbaca, nilai teks apa adanya. */
+  function ringkas(h) {
+    var kolom = Object.keys(h.peta), nPeta = kolom.length;
+    h.data.forEach(function (o) { Object.keys(o).forEach(function (k) { if (kolom.indexOf(k) < 0) kolom.push(k); }); });
+    var lr = {
+      v: 1, jenis: h.an.jenis, nama_file: String(h.namaFile || h.an.namaFile || ''),
+      per: { tanggal: h.per.tanggal || '', laporan: h.per.laporan || '', pembina: h.per.pembina || '', namaPembina: h.per.namaPembina || '', dariJudul: !!h.per.dariJudul },
+      kolom: kolom, nPeta: nPeta,
+      judul: kolom.map(function (k) { return h.peta[k] !== undefined ? String(h.an.gabung[h.peta[k]] || '') : ''; }),
+      baris: h.data.map(function (o) { return kolom.map(function (k) { return o[k] === undefined || o[k] === null ? '' : String(o[k]); }); }),
+      posisi: !!h.an.posisi, menurutIsi: !!h.an.menurutIsi,
+      judulTeks: String(h.an.judulTeks || '').slice(0, MAKS_JUDUL_TEKS), rekap: h.rekap || null
+    };
+    lr.pembina = pembinaLaporan(lr);
+    lr.sidik = sidik(lr);
+    return lr;
+  }
+
+  /** Laporan ringkas → bentuk yang sama dengan hasil urai (an, peta, data, per, rekap). */
+  function buka(lr) {
+    var peta = {}, gabung = [];
+    lr.kolom.forEach(function (k, i) { if (i < (lr.nPeta === undefined ? lr.kolom.length : lr.nPeta)) peta[k] = i; gabung.push(String((lr.judul || [])[i] || '')); });
+    var data = (lr.baris || []).map(function (r) {
+      var o = {};
+      lr.kolom.forEach(function (k, i) { o[k] = r[i] === undefined || r[i] === null ? '' : String(r[i]); });
+      return o;
+    });
+    var an = { jenis: lr.jenis, gabung: gabung, judulTeks: lr.judulTeks || '', namaFile: lr.nama_file || '', posisi: !!lr.posisi, menurutIsi: !!lr.menurutIsi, mulai: 0, lebar: lr.kolom.length, ringkas: true };
+    var p = lr.per || {};
+    return { an: an, peta: lr.jenis === 'KPI084' ? {} : peta, data: data, rekap: lr.rekap || null, namaFile: lr.nama_file || '',
+      per: { tanggal: p.tanggal || '', laporan: p.laporan || '', pembina: p.pembina || '', namaPembina: p.namaPembina || '', dariJudul: !!p.dariJudul } };
+  }
+
+  /** Pembina laporan: dari judul, atau satu-satunya kode di kolom pembina; 'SEMUA' bila beberapa pembina. */
+  function pembinaLaporan(lr) {
+    if (lr.per && lr.per.pembina) return lr.per.pembina;
+    var i = lr.kolom.indexOf('pembina'), kode = {};
+    if (i < 0 || lr.jenis === 'KPI085') return lr.jenis === 'KPI084' || lr.jenis === 'KPI085' ? 'KANTOR' : '';
+    (lr.baris || []).forEach(function (r) { var m = String(r[i] || '').toUpperCase().match(/[A-Z]{2}\d{6}/); if (m) kode[m[0]] = true; });
+    var k = Object.keys(kode);
+    return k.length === 1 ? k[0] : (k.length > 1 ? 'SEMUA' : '');
+  }
+
+  /** Laporan ringkas → grid sederhana yang dikenali pengurai lama (untuk Monitor SPPG ≤ 1.5 lewat jembatan). */
+  function keGrid(lr) {
+    var def = {};
+    (DEF_PEMETAAN[lr.jenis] || []).forEach(function (d) { def[d[0]] = d[1].split('|')[0].replace(/#\d+$/, '').replace(/\*$/, ''); });
+    var g = String(lr.judulTeks || '').split('\n').filter(function (t) { return /\S/.test(t); }).slice(0, 8).map(function (t) { return [t]; });
+    g.push(lr.kolom.map(function (k) { return def[k] || k.replace(/_/g, ' '); }));
+    (lr.baris || []).forEach(function (r) { g.push(r.slice()); });
+    return g;
+  }
+
+  /** Sidik isi (penolak unggahan ganda): sama bila jenis, tanggal data, pembina, dan semua baris sama. */
+  function sidik(lr) {
+    var s = JSON.stringify([lr.jenis, (lr.per || {}).tanggal, (lr.per || {}).laporan, (lr.per || {}).pembina, lr.kolom, lr.baris]);
+    return hash(s, 1) + hash(s, 7);
+  }
+  /** Hash 53-bit (cyrb53) → 14 karakter heksa. */
+  function hash(s, benih) {
+    var h1 = 0xdeadbeef ^ (benih || 0), h2 = 0x41c6ce57 ^ (benih || 0);
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    var n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+    return ('00000000000000' + n.toString(16)).slice(-14);
+  }
+
+  /** Laporan ringkas kiriman perangkat diperiksa & dirapikan sebelum disimpan (sidik & pembina dihitung ulang). */
+  function periksa(x) {
+    if (!x || typeof x !== 'object') throw new Error('Laporan kosong.');
+    if (!NAMA_LAPORAN[x.jenis]) throw new Error('Jenis laporan tidak dikenal: ' + String(x.jenis).slice(0, 40));
+    var kolom = x.kolom;
+    if (!Array.isArray(kolom) || !kolom.length || kolom.length > 60 || kolom.some(function (k) { return typeof k !== 'string' || !/^[a-z0-9_]{1,40}$/.test(k); })) throw new Error('Kolom laporan tidak sah.');
+    if (!Array.isArray(x.baris) || !x.baris.length || x.baris.length > 50000) throw new Error('Baris laporan kosong atau terlalu banyak.');
+    var teks = function (v, n) { return v === null || v === undefined ? '' : String(v).slice(0, n || 1000); };
+    var baris = x.baris.map(function (r) {
+      if (!Array.isArray(r) || r.length !== kolom.length) throw new Error('Baris laporan tidak sesuai kolom.');
+      return r.map(function (v) { if (v !== null && typeof v === 'object') throw new Error('Isi sel tidak sah.'); return teks(v); });
+    });
+    var p = x.per || {}, rk = x.rekap && typeof x.rekap === 'object' ? x.rekap : null, rekap = null;
+    if (rk) { rekap = {}; ['aktif', 'itw', 'target', 'itb'].forEach(function (k) { rekap[k] = Number(rk[k]) || 0; }); }
+    var lr = {
+      v: 1, jenis: x.jenis, nama_file: teks(x.nama_file || 'laporan', 200),
+      per: { tanggal: /^\d{4}-\d{2}-\d{2}$/.test(p.tanggal) ? p.tanggal : '', laporan: /^\d{4}-\d{2}$/.test(p.laporan) ? p.laporan : '', pembina: /^[A-Z]{2}\d{6}$/.test(p.pembina) ? p.pembina : '', namaPembina: teks(p.namaPembina, 80), dariJudul: !!p.dariJudul },
+      kolom: kolom.slice(), nPeta: Math.max(0, Math.min(kolom.length, Number(x.nPeta === undefined ? kolom.length : x.nPeta) || 0)),
+      judul: kolom.map(function (k, i) { return teks((x.judul || [])[i], 200); }),
+      baris: baris, posisi: !!x.posisi, menurutIsi: !!x.menurutIsi, judulTeks: teks(x.judulTeks, MAKS_JUDUL_TEKS), rekap: rekap
+    };
+    if (!lr.per.tanggal) throw new Error('Tanggal data laporan tidak ada.');
+    lr.pembina = pembinaLaporan(lr);
+    lr.sidik = sidik(lr);
+    return lr;
+  }
+
+  /** Kunci penggantian: laporan jenis + tanggal + pembina (atau nama file) yang sama menggantikan yang lama. */
+  function kunciLaporan(lr) { return lr.jenis + '|' + ((lr.per || {}).tanggal || '') + '|' + (lr.pembina || (lr.per || {}).pembina || lr.nama_file || ''); }
+
+  return {
+    VERSI: VERSI, pasang: pasang, lupakan: lupakan, CFG: CFG,
+    DEF_PEMETAAN: DEF_PEMETAAN, URUTAN_KOLOM: URUTAN_KOLOM, NAMA_LAPORAN: NAMA_LAPORAN, BULAN_SINGKAT: BULAN_SINGKAT, BULAN_KPI: BULAN_KPI, GUDANG: GUDANG,
+    uraiCsv: uraiCsv, deteksiPemisah: deteksiPemisah, aliasSemua: aliasSemua, pemetaan: pemetaan, analisaGrid: analisaGrid, tebakJenis: tebakJenis,
+    cariKolom: cariKolom, petakanKolom: petakanKolom, petakanJudul: petakanJudul, petakanIsi: petakanIsi, ambilBaris: ambilBaris, ambilKpi084: ambilKpi084,
+    tentukanPeriode: tentukanPeriode, cekPosisi: cekPosisi, bacaRekapItw: bacaRekapItw,
+    urai: urai, uraiTeks: uraiTeks, ringkas: ringkas, buka: buka, periksa: periksa, keGrid: keGrid, sidik: sidik, hash: hash, pembinaLaporan: pembinaLaporan, kunciLaporan: kunciLaporan,
+    adalahSppg: adalahSppg, norm: norm, keAngka: keAngka, keTanggal: keTanggal, keBlth: keBlth, keYT: keYT, rapikanNpp: rapikanNpp, rapikanDiv: rapikanDiv,
+    rusakExcel: rusakExcel, kelasDariTeks: kelasDariTeks, judulKata: judulKata
+  };
+})();
 /* ======================================================================
  *  KIT LENSA Suite · redaksi.js 1.0 — penyusun pesan WhatsApp bersama.
  *  Dipakai di: mesin LENSA (Apps Script dan perangkat), aplikasi LENSA PK, Monitor SPPG.
@@ -1058,7 +1960,7 @@ var CSS_PESAN_WA = "*{box-sizing:border-box}\n.modul-wa{font:15px/1.45 system-ui
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '1.5.0';
+var VERSI = '1.6.0';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -1457,445 +2359,24 @@ async function bacaXlsx(buf) {
 
 var NAMA_LAPORAN = { ITW_ITB: 'ITW/ITB', MONITORING: 'Monitoring', DATA_BU: 'Data Badan Usaha', LENSA_STATUS: 'STATUS_PK (LENSA)' };
 
-var DEF_PEMETAAN = {
-  DATA_BU: [
-    ['npp', 'npp', 'Ya'],
-    ['div', 'div|divisi', ''],
-    ['nama', 'nama pemberi kerja badan usaha|pemberi kerja badan usaha|nama badan usaha|nama perusahaan|nama pk|nama pemberi kerja', 'Ya'],
-    ['blth_keps', 'blth keps|keps awal|keps', ''],
-    ['blth_na', 'blth na', ''],
-    ['kategori', 'kategori pk bu|kategori', ''],
-    ['rate_jkk', 'rate jkk|rate', ''],
-    ['kode_ilo', 'kode ilo', ''],
-    ['nama_ilo', 'nama ilo', ''],
-    ['total_upah', 'total upah', 'Ya'],
-    ['blth_iuran', 'iuran trakhir blth|iuran terakhir blth|blth iuran|blth', ''],
-    ['jumlah_iuran', 'iuran trakhir jumlah|iuran terakhir jumlah|jumlah iuran|jumlah', ''],
-    ['alamat', 'alamat', 'Ya'],
-    ['kabupaten', 'kabupaten|kab kota|kota', ''],
-    ['kode_area', 'kode area', ''],
-    ['telp', 'no telp|telp|telepon|no telepon', ''],
-    ['pic_nama', 'data pic nama|nama pic|pic nama|nama', ''],
-    ['pic_jabatan', 'data pic jabatan|jabatan pic|pic jabatan|jabatan', ''],
-    ['pic_hp', 'data pic no hp|no hp|hp|handphone|no handphone', ''],
-    ['pic_email', 'data pic email|email|e mail', '']
-  ],
-  MONITORING: [
-    ['npp', 'npp', 'Ya'],
-    ['div', 'div|divisi', ''],
-    ['nama', 'pemberi kerja badan usaha|nama pemberi kerja badan usaha|nama badan usaha|nama perusahaan|nama pk|nama', 'Ya'],
-    ['keps_awal', 'keps awal|kepesertaan awal', ''],
-    ['keps_jp', 'keps jp|kepesertaan jp', ''],
-    ['blth_na', 'blth na|na blth', ''],
-    ['skala', 'skala usaha|skala', ''],
-    ['prog', 'prog|program', ''],
-    ['tk_tambah', 'penambahan|tk tambah|tk masuk', ''],
-    ['tk_kurang', 'pengurangan|tk kurang|tk keluar', ''],
-    ['tk_aktif', 'tk aktif|aktif', 'Ya'],
-    ['tk_na', 'tk na|tk nonaktif|tk non aktif', ''],
-    ['tk_jumlah', 'jumlah tk|tk jumlah|jumlah', ''],
-    ['iuran_berjalan', 'total iuran berjalan|iuran berjalan|total iuran', ''],
-    ['tgl_terima', 'tgl penerimaan iuran terakhir|tgl penerimaan iuran terkahir|tgl penerimaan|tanggal penerimaan|tgl terima|penerimaan', 'Ya'],
-    ['blth_entri', 'entri dutk blth|blth entri|entri dutk|blth#1', ''],
-    ['blth_posting', 'posting terakhir blth|blth posting|posting terakhir|blth#2', 'Ya'],
-    ['nilai_posting', 'nilai posting|posting terakhir nilai posting', ''],
-    ['sipp_prs', 'sipp prs|sipp', ''],
-    ['itw', 'itw', ''],
-    ['ibr_ijt', 'ijt|nilai ibr ijt|ibr ijt', ''],
-    ['ibr_idm', 'idm|nilai ibr idm|ibr idm', '']
-  ],
-  ITW_ITB: [
-    ['npp', 'npp', 'Ya'],
-    ['div', 'div|divisi', ''],
-    ['nama', 'nama pemberi kerja badan usaha|pemberi kerja badan usaha|nama badan usaha|nama perusahaan|nama pk|nama', 'Ya'],
-    ['pembina', 'pembina', ''],
-    ['blth_posting', 'itrf blth|blth itrf|blth posting|blth', 'Ya'],
-    ['iuran_terakhir', 'itrf nilai rp|itrf nilai|nilai itrf|iuran terakhir|nilai rp#1', 'Ya'],
-    ['periode_nilai', 'periode penilaian|periode', 'Ya'],
-    ['bln_belum_posting', 'jml bln blm posting|jumlah bulan belum posting|bln blm posting|blm posting|belum posting', 'Ya'],
-    ['ibr_nilai', 'kecukupan ibr nilai rp|ibr nilai rp|ibr nilai|nilai ibr|nilai rp#2', ''],
-    ['ibr_bulan', 'kecukupan ibr jml bulan|ibr jml bulan|jml bulan|jumlah bulan|ibr bulan', 'Ya'],
-    ['koef', 'koef|koefisien', 'Ya'],
-    ['itw', 'itw', 'Ya'],
-    ['itb', 'itb', 'Ya']
-  ],
-  LENSA_STATUS: [
-    ['npp', 'npp', 'Ya'],
-    ['div', 'div', ''],
-    ['nama', 'nama', 'Ya'],
-    ['segmen', 'segmen', ''],
-    ['kontak_utama', 'kontak utama', 'Ya']
-  ]
-};
-
-var URUTAN_KOLOM = {
-  ITW_ITB: ['no', 'kci', 'kcp', 'npp', 'div', 'nama', 'pembina', 'blth_posting', 'iuran_terakhir', 'periode_nilai', 'bln_belum_posting', 'ibr_nilai', 'ibr_bulan', 'koef', 'itw', 'itb'],
-  MONITORING: ['no', 'npp', 'div', 'nama', 'keps_awal', 'keps_jp', 'blth_na', 'skala', 'prog', 'tk_tambah', 'tk_kurang', 'tk_aktif', 'tk_na', 'tk_jumlah', 'iuran_berjalan', 'tgl_terima', 'blth_entri', 'blth_posting', 'nilai_posting', 'sipp_prs', 'itw', 'ibr_ijt', 'ibr_idm'],
-  DATA_BU: ['no', 'npp', 'div', 'nama', 'blth_keps', 'blth_na', 'kategori', 'rate_jkk', 'kode_ilo', 'nama_ilo', 'total_upah', 'blth_iuran', 'jumlah_iuran', 'alamat', 'kabupaten', 'kode_area', 'telp', 'pic_nama', 'pic_jabatan', 'pic_hp', 'pic_email']
-};
-
-var _PEMETAAN = null;
-function pemetaan(lap) {
-  if (!_PEMETAAN) {
-    _PEMETAAN = {};
-    Object.keys(DEF_PEMETAAN).forEach(function (l) {
-      _PEMETAAN[l] = DEF_PEMETAAN[l].map(function (d) { return { kolom: d[0], alias: d[1].split('|'), wajib: d[2] === 'Ya' }; });
-    });
-  }
-  return _PEMETAAN[lap] || [];
-}
-
-function aliasSemua() {
-  var set = {};
-  Object.keys(DEF_PEMETAAN).forEach(function (lap) {
-    pemetaan(lap).forEach(function (d) { d.alias.forEach(function (a) { set[norm(a.replace(/#\d+$/, ''))] = true; }); });
-  });
-  delete set[''];
-  return set;
-}
-
-function uraiCsv(teks, pemisah) {
-  teks = String(teks || '').replace(/^﻿/, '');
-  var baris = [], sel = '', row = [], kutip = false, i = 0, n = teks.length;
-  while (i < n) {
-    var ch = teks.charAt(i);
-    if (kutip) {
-      if (ch === '"') {
-        if (teks.charAt(i + 1) === '"') { sel += '"'; i += 2; continue; }
-        kutip = false; i++; continue;
-      }
-      sel += ch; i++; continue;
-    }
-    if (ch === '"' && sel === '') { kutip = true; i++; continue; }
-    if (ch === pemisah) { row.push(sel); sel = ''; i++; continue; }
-    if (ch === '\r') { i++; continue; }
-    if (ch === '\n') { row.push(sel); baris.push(row); row = []; sel = ''; i++; continue; }
-    sel += ch; i++;
-  }
-  if (sel !== '' || row.length) { row.push(sel); baris.push(row); }
-  return baris.map(function (r) { return r.map(function (x) { return String(x).trim(); }); });
-}
-
-function deteksiPemisah(teks) {
-  var contoh = String(teks || '').split(/\r?\n/).slice(0, 60).join('\n');
-  var terbaik = ',', skor = -1;
-  [',', ';', '\t', '|'].forEach(function (p) {
-    var g = uraiCsv(contoh, p);
-    var lebar = g.map(function (r) { return r.length; }).sort(function (a, b) { return b - a; });
-    var s = lebar.length ? lebar[Math.floor(lebar.length / 4)] : 0;
-    if (s > skor) { skor = s; terbaik = p; }
-  });
-  return terbaik;
-}
-
-function barisData(row) {
-  var adaNpp = false, adaBlth = false, adaTgl = false, adaBulan = false, angka = 0;
-  for (var i = 0; i < row.length; i++) {
-    var x = String(row[i] || '').trim();
-    if (!x) continue;
-    if (/^(jan|feb|mar|apr|mei|may|jun|jul|agu|ags|aug|sep|okt|oct|nov|des|dec)$/i.test(x)) adaBulan = true;
-    if (keAngka(x) !== null) angka++;
-    if (/^[A-Z]{2}\d{6}$/i.test(x)) adaNpp = true;
-    else if (/^\d{7,8}$/.test(x) && !/^(19|20)\d{2}(0[1-9]|1[0-2])([0-2]\d|3[01])$/.test(x)) adaNpp = true;
-    else if (/^\d{1,2}[\-\/]\d{4}$/.test(x)) adaBlth = true;
-    else if (/^\d{1,2}[\-\/]\d{1,2}[\-\/]\d{2,4}$/.test(x)) adaTgl = true;
-  }
-  return adaNpp || (adaBlth && adaTgl) || (adaBulan && angka >= 8);
-}
-
-function barisJudulKelompok(row) {
-  var isi = row.filter(function (x) { return String(x || '').trim() !== ''; });
-  if (isi.length < 2) return false;
-  for (var i = 0; i < isi.length; i++) if (String(isi[i]).indexOf(':') >= 0) return false;
-  return true;
-}
-
-function analisaGrid(grid, namaFile) {
-  var semua = aliasSemua();
-  var terbaik = -1, skorTerbaik = 0;
-  var batas = Math.min(grid.length, 80);
-  for (var r = 0; r < batas; r++) {
-    var skor = 0;
-    for (var c = 0; c < grid[r].length; c++) {
-      var h = norm(grid[r][c]);
-      if (h && semua[h]) skor++;
-    }
-    if (skor > skorTerbaik) { skorTerbaik = skor; terbaik = r; }
-  }
-  if (skorTerbaik < 3) {
-    terbaik = -2;
-    for (var rr = 0; rr < batas; rr++) if (barisData(grid[rr])) { terbaik = rr - 1; break; }
-    if (terbaik === -2) throw new Error('Judul kolom laporan tidak ditemukan dan tidak ada baris NPP. Pastikan file adalah hasil ekspor laporan sistem (CSV/XLSX).');
-  }
-  var mulai = -1;
-  for (var r2 = terbaik + 1; r2 < grid.length; r2++) if (barisData(grid[r2])) { mulai = r2; break; }
-  if (mulai < 0) throw new Error('Tidak ada baris data (NPP) di bawah judul kolom.');
-
-  var atas = terbaik < 0 ? mulai : terbaik;
-  for (var k = 1; k <= 4 && terbaik >= 0 && terbaik - k >= 0; k++) {
-    if (barisJudulKelompok(grid[terbaik - k])) atas = terbaik - k;
-    else break;
-  }
-  var lebar = 0;
-  for (var r3 = atas; r3 < Math.min(grid.length, mulai + 5); r3++) lebar = Math.max(lebar, grid[r3].length);
-  var bagian = [], gabung = [];
-  for (var c2 = 0; c2 < lebar; c2++) {
-    var p = [];
-    for (var r4 = atas; r4 < mulai; r4++) { var t = norm(grid[r4][c2]); if (t) p.push(t); }
-    bagian.push(p);
-    gabung.push(p.join(' '));
-  }
-  var dataPertama = grid[mulai], lebarData = 0;
-  for (var c3 = 0; c3 < dataPertama.length; c3++) if (String(dataPertama[c3]).trim() !== '') lebarData = c3 + 1;
-  var luar = grid.slice(0, atas).map(function (x) { return x.join(' '); });
-  for (var r5 = mulai; r5 < grid.length; r5++) if (!barisData(grid[r5])) luar.push(grid[r5].join(' '));
-  var an = { kepala: terbaik, atas: atas, mulai: mulai, lebar: lebar, lebarData: lebarData, bagian: bagian, gabung: gabung, judulTeks: luar.join('\n'), namaFile: namaFile || '' };
-  an.jenis = tebakJenis(gabung.join(' | '), namaFile);
-  return an;
-}
-
-function tebakJenis(teks, namaFile) {
-  var t = ' ' + teks + ' ';
-  if (/kontak utama/.test(t) && /(status bayar|segmen)/.test(t)) return 'LENSA_STATUS';
-  if (/pkbu itw/.test(t) && /menunggak/.test(t)) throw new Error('Ini laporan KPI084 (rekap migrasi). Monitor SPPG memakai ITW/ITB, Monitoring, atau Data Badan Usaha.');
-  if (/ koef/.test(t) && / itb /.test(t)) return 'ITW_ITB';
-  if (/kecukupan ibr/.test(t) && /(blm posting|belum posting|penilaian)/.test(t)) return 'ITW_ITB';
-  if (/blth iuran/.test(t) && /(tanggal|tgl) bayar/.test(t)) throw new Error('Ini Kartu Iuran satu NPP. Monitor SPPG memakai ITW/ITB, Monitoring, atau Data Badan Usaha.');
-  if (/(penambahan|pengurangan)/.test(t) && /aktif/.test(t)) return 'MONITORING';
-  if (/(nama ilo|kode ilo|rate jkk)/.test(t)) return 'DATA_BU';
-  var f = String(namaFile || '').toLowerCase();
-  if (/status.?pk/.test(f)) return 'LENSA_STATUS';
-  if (/itw|itb/.test(f)) return 'ITW_ITB';
-  if (/monitor/.test(f)) return 'MONITORING';
-  if (/badan.?usaha|dbu|data.?bu/.test(f)) return 'DATA_BU';
-  throw new Error('Jenis laporan tidak dikenali dari judul kolom maupun nama file.');
-}
-
-function cariKolom(an, alias, dipakai) {
-  var m = String(alias).match(/^(.*?)(\*)?(?:#(\d+))?$/);
-  var a = norm(m[1]), awalan = !!m[2], ke = m[3] ? +m[3] : 1, berurut = !!m[3];
-  if (!a) return -1;
-  var cocok = [], c;
-  var sama = function (c) { return an.gabung[c] === a || an.bagian[c].indexOf(a) >= 0; };
-  var memuat = function (c) { return (' ' + an.gabung[c] + ' ').indexOf(' ' + a + ' ') >= 0; };
-  if (awalan) {
-    for (c = 0; c < an.lebar; c++) if (an.gabung[c].indexOf(a) === 0 || an.bagian[c].some(function (p) { return p.indexOf(a) === 0; })) cocok.push(c);
-    return cocok.length >= ke ? cocok[ke - 1] : -1;
-  }
-  if (berurut) {
-    for (c = 0; c < an.lebar; c++) if (sama(c) || memuat(c)) cocok.push(c);
-    return cocok.length >= ke ? cocok[ke - 1] : -1;
-  }
-  for (c = 0; c < an.lebar; c++) { if (!dipakai[c] && sama(c)) cocok.push(c); }
-  if (!cocok.length) {
-    for (c = 0; c < an.lebar; c++) { if (!dipakai[c] && memuat(c)) cocok.push(c); }
-    cocok.sort(function (x, y) { return x - y; });
-  }
-  return cocok.length >= ke ? cocok[ke - 1] : -1;
-}
-
-var TIPE_KOLOM = {
-  no: 'bulat', npp: 'npp', div: 'div', nama: 'teks', kci: 'kode', kcp: 'kode', pembina: 'pembina',
-  blth_keps: 'blth', blth_na: 'blth', kategori: 'teks', rate_jkk: 'desimal', kode_ilo: 'ilo', nama_ilo: 'teks',
-  total_upah: 'angka', blth_iuran: 'blth', jumlah_iuran: 'angka', alamat: 'teks', kabupaten: 'teks', kode_area: 'digit',
-  telp: 'digit', pic_nama: 'teks', pic_jabatan: 'teks', pic_hp: 'digit', pic_email: 'email',
-  blth_posting: 'blth', iuran_terakhir: 'angka', periode_nilai: 'blth', bln_belum_posting: 'bulat', ibr_nilai: 'angka',
-  ibr_bulan: 'bulat', koef: 'bulat', itw: 'yt', itb: 'yt',
-  keps_awal: 'blth', keps_jp: 'blth', skala: 'skala', prog: 'prog', tk_tambah: 'bulat', tk_kurang: 'bulat', tk_aktif: 'bulat',
-  tk_na: 'bulat', tk_jumlah: 'bulat', iuran_berjalan: 'angka', tgl_terima: 'tgl', blth_entri: 'blth', nilai_posting: 'angka',
-  sipp_prs: 'sipp', ibr_ijt: 'angka', ibr_idm: 'angka'
-};
-var SERING_KOSONG = { blth_na: 1, kategori: 1, keps_jp: 1, prog: 1 };
-
-function cocokTipe(tipe, x) {
-  switch (tipe) {
-    case 'bulat': return /^-?(\d{1,3}(,\d{3})+|\d+)$/.test(x);
-    case 'angka': return keAngka(x) !== null;
-    case 'desimal': var a = keAngka(x, true); return a !== null && a < 100;
-    case 'digit': return /^[\d\s\-\+\(\)\/]{3,}$/.test(x) || rusakExcel(x);
-    case 'ilo': return /^\d{3,5}$/.test(x);
-    case 'blth': return !!keBlth(x) && !keTanggal(x) && !/^\d+$/.test(x);
-    case 'tgl': return !!keTanggal(x);
-    case 'teks': return /[A-Za-z]{2,}/.test(x) && !keBlth(x) && x.indexOf('@') < 0 && !/^(ya|tidak)$/i.test(x);
-    case 'email': return x.indexOf('@') > 0;
-    case 'npp': return !!rapikanNpp(x);
-    case 'div': return /^\d{1,3}$/.test(x);
-    case 'kode': return /^[A-Z]\d{2}$/i.test(x);
-    case 'pembina': return /^[A-Z]{2}\d{6}/i.test(x) || (/[A-Za-z]{3,}/.test(x) && !keBlth(x));
-    case 'yt': return /^(Y|T)$/i.test(x);
-    case 'skala': return /^(B|Mn|K|Mi|MI|M)$/.test(x);
-    case 'prog': return /^\dP$/i.test(x);
-    case 'sipp': return /^(-|sipp|prs|sipp\/prs)$/i.test(x);
-  }
-  return true;
-}
-
-function barisContoh(an, grid) {
-  var out = [];
-  for (var r = an.mulai; r < grid.length && out.length < 150; r++) if (barisData(grid[r])) out.push(grid[r]);
-  return out;
-}
-
-function skorPeta(jenis, peta, contoh) {
-  var def = pemetaan(jenis), wajib = {};
-  def.forEach(function (d) { if (d.wajib) wajib[d.kolom] = true; });
-  var total = 0, ok = true, buruk = [];
-  Object.keys(peta).forEach(function (k) {
-    var tipe = TIPE_KOLOM[k];
-    if (!tipe) return;
-    var isi = 0, pas = 0;
-    contoh.forEach(function (row) {
-      var x = String(row[peta[k]] === undefined ? '' : row[peta[k]]).trim();
-      if (!x) return;
-      isi++;
-      if (cocokTipe(tipe, x)) pas++;
-    });
-    total += pas - (isi - pas);
-    if (wajib[k] && (!isi || pas / isi < 0.8)) { ok = false; buruk.push(k); }
-  });
-  return { total: total, ok: ok, buruk: buruk };
-}
-
-function petakanIsi(jenis, contoh) {
-  var urut = URUTAN_KOLOM[jenis];
-  if (!urut || !contoh.length) return null;
-  var lebar = 0;
-  contoh.forEach(function (r) { lebar = Math.max(lebar, r.length); });
-  var slot = [];
-  for (var c = 0; c < lebar; c++) {
-    if (contoh.some(function (r) { return String(r[c] === undefined ? '' : r[c]).trim() !== ''; })) slot.push(c);
-  }
-  var def = pemetaan(jenis), wajib = {};
-  def.forEach(function (d) { if (d.wajib) wajib[d.kolom] = true; });
-  var nilai = {};
-  function skor(i, j) {
-    var key = i + '|' + j;
-    if (nilai[key] !== undefined) return nilai[key];
-    var tipe = TIPE_KOLOM[urut[i]], isi = 0, pas = 0;
-    contoh.forEach(function (r) {
-      var x = String(r[slot[j]] === undefined ? '' : r[slot[j]]).trim();
-      if (!x) return;
-      isi++;
-      if (!tipe || cocokTipe(tipe, x)) pas++;
-    });
-    return (nilai[key] = isi ? pas / isi : 0);
-  }
-  var n = urut.length, m = slot.length, NEG = -1e9, dp = [], dari = [], i, j;
-  for (i = 0; i <= n; i++) { dp.push([]); dari.push([]); for (j = 0; j <= m; j++) { dp[i].push(NEG); dari[i].push(''); } }
-  dp[0][0] = 0;
-  for (i = 0; i <= n; i++) {
-    for (j = 0; j <= m; j++) {
-      var v = dp[i][j];
-      if (v === NEG) continue;
-      if (i < n && j < m) { var a = v + skor(i, j); if (a > dp[i + 1][j + 1]) { dp[i + 1][j + 1] = a; dari[i + 1][j + 1] = 'p'; } }
-      if (i < n) { var b = v - (wajib[urut[i]] ? 3 : SERING_KOSONG[urut[i]] ? 0.1 : 0.4); if (b > dp[i + 1][j]) { dp[i + 1][j] = b; dari[i + 1][j] = 'k'; } }
-      if (j < m) { var d = v - 0.6; if (d > dp[i][j + 1]) { dp[i][j + 1] = d; dari[i][j + 1] = 's'; } }
-    }
-  }
-  var peta = {};
-  i = n; j = m;
-  while (i > 0 || j > 0) {
-    var arah = dari[i][j];
-    if (arah === 'p') { peta[urut[i - 1]] = slot[j - 1]; i--; j--; }
-    else if (arah === 'k') i--;
-    else j--;
-  }
-  delete peta.no;
-  return peta;
-}
-
-function petakanJudul(an) {
-  var def = pemetaan(an.jenis), peta = {}, dipakai = {};
-  def.forEach(function (d) {
-    var c = -1;
-    for (var i = 0; i < d.alias.length && c < 0; i++) c = cariKolom(an, d.alias[i], dipakai);
-    if (c >= 0) { peta[d.kolom] = c; dipakai[c] = true; }
-  });
-  var kurang = def.filter(function (d) { return d.wajib && peta[d.kolom] === undefined; }).map(function (d) { return d.kolom; });
-  if (kurang.length) {
-    var urut = URUTAN_KOLOM[an.jenis];
-    if (urut && (an.lebarData === urut.length || an.lebar === urut.length)) {
-      peta = {};
-      urut.forEach(function (k, i) { peta[k] = i; });
-      kurang = [];
-      an.posisi = true;
-    }
-  }
-  if (kurang.length) {
-    throw new Error('Kolom wajib tidak ditemukan: ' + kurang.join(', ') + '. Judul kolom di file: ' + an.gabung.filter(String).join(' | '));
-  }
-  return peta;
-}
-
-function petakanKolom(an, grid) {
-  var contoh = grid ? barisContoh(an, grid) : [];
-  var judul = null, galatJudul = null;
-  try { judul = petakanJudul(an); } catch (e) { galatJudul = e; }
-  if (!contoh.length || !URUTAN_KOLOM[an.jenis]) { if (galatJudul) throw galatJudul; return judul; }
-  var sJudul = judul ? skorPeta(an.jenis, judul, contoh) : null;
-  var isi = petakanIsi(an.jenis, contoh);
-  var sIsi = isi ? skorPeta(an.jenis, isi, contoh) : null;
-  if (sJudul && sJudul.ok && (!sIsi || !sIsi.ok || sIsi.total <= sJudul.total * 1.05)) return judul;
-  if (sIsi && sIsi.ok) { an.posisi = false; an.menurutIsi = true; return isi; }
-  if (galatJudul) throw galatJudul;
-  throw new Error('Isi kolom tidak sesuai dengan laporan ' + NAMA_LAPORAN[an.jenis] + ' (kolom bermasalah: ' + ((sJudul && sJudul.buruk) || []).join(', ') + ').');
-}
-
-function ambilBaris(an, peta, grid) {
-  var out = [], prev = null;
-  for (var r = an.mulai; r < grid.length; r++) {
-    var row = grid[r], o = {};
-    Object.keys(peta).forEach(function (k) { var x = row[peta[k]]; o[k] = x === undefined || x === null ? '' : String(x).trim(); });
-    var npp = rapikanNpp(o.npp);
-    if (npp) { o.npp = npp; o.div = rapikanDiv(o.div); out.push(o); prev = o; continue; }
-    var isi = row.filter(function (x) { return String(x || '').trim() !== ''; });
-    if (!isi.length) { prev = null; continue; }
-    var adaTitikDua = isi.some(function (x) { return String(x).indexOf(':') >= 0 || /^-/.test(String(x).trim()); });
-    if (prev && an.jenis === 'DATA_BU' && !adaTitikDua) {
-      ['nama', 'alamat', 'pic_nama', 'pic_jabatan'].forEach(function (k) { if (o[k]) prev[k] = (prev[k] ? prev[k] + ' ' : '') + o[k]; });
-      if (o.pic_email) prev.pic_email = (prev.pic_email || '') + o.pic_email;
-    } else prev = null;
-  }
-  return out;
-}
-
-function tentukanPeriode(an) {
-  var t = an.judulTeks || '', m, cetak = '';
-  m = t.match(/(?:tanggal cetak|tgl\.? cetak|tanggal|tgl)\s*:?\s*(\d{1,2}[\-\/\.]\d{1,2}[\-\/\.]\d{2,4})/i);
-  if (m) cetak = keTanggal(m[1]);
-  if (!cetak) {
-    m = t.match(/periode\s*:?\s*(\d{1,2}[\-\/\. ][a-z]{3}[a-z]*[\-\/\. ]\d{2,4})/i);
-    if (m) cetak = keTanggal(m[1]);
-  }
-  if (!cetak) {
-    var f = an.namaFile || '';
-    m = f.match(/((?:19|20)\d{2})[\-_\.]?(0[1-9]|1[0-2])[\-_\.]?([0-2]\d|3[01])/);
-    if (m) cetak = ymd(m[1], m[2], m[3]);
-    else if ((m = f.match(/([0-2]\d|3[01])[\-_\.](0[1-9]|1[0-2])[\-_\.]((?:19|20)\d{2})/))) cetak = ymd(m[3], m[2], m[1]);
-  }
-  var dariJudul = !!cetak;
-  if (!cetak || cetak > hariIni()) cetak = hariIni();
-  var lap = '';
-  m = t.match(/periode\s*:?\s*(\d{1,2}[\-\/]\d{4})(?!\d)/i);
-  if (m) lap = keBlth(m[1]);
-  var pembina = '';
-  m = t.match(/pembina\s*:?\s*([A-Z]{2}\d{6})/i);
-  if (m) pembina = m[1].toUpperCase();
-  return { tanggal: cetak, dariJudul: dariJudul, laporan: lap, pembina: pembina };
-}
-
-function cekPosisi(jenis, data) {
-  var uji = {
-    ITW_ITB: function (o) { return keBlth(o.periode_nilai) && keYT(o.itw) && keYT(o.itb); },
-    MONITORING: function (o) { return (!o.blth_posting || keBlth(o.blth_posting)) && (!o.tgl_terima || keTanggal(o.tgl_terima)) && /^(B|Mn|K|Mi|MI|)$/.test(String(o.skala).trim()); },
-    DATA_BU: function (o) { return keAngka(o.total_upah) !== null && (!o.blth_iuran || keBlth(o.blth_iuran)); }
-  }[jenis];
-  if (!uji) return;
-  var cocok = data.filter(uji).length;
-  if (cocok < data.length * 0.9) {
-    throw new Error('Judul kolom tidak dikenali dan isi kolom tidak sesuai urutan ' + NAMA_LAPORAN[jenis] + ' (' + cocok + ' dari ' + data.length + ' baris cocok).');
-  }
-}
+/* 1.6 (LENSA Suite 2A): pengurai laporan = modul Impor bersama (kit/impor.js, KitImpor) — sama persis dengan
+ * LENSA PK dan Hub. Judul kolom tambahan dari tab PEMETAAN LENSA ikut terkirim saat menarik dari Hub. */
+KitImpor.pasang({
+  jenis: ['ITW_ITB', 'MONITORING', 'DATA_BU', 'LENSA_STATUS'],
+  tolak: {
+    KPI084: 'Ini laporan KPI084 (rekap migrasi). Monitor SPPG memakai ITW/ITB, Monitoring, atau Data Badan Usaha.',
+    KARTU_IURAN: 'Ini Kartu Iuran satu NPP. Monitor SPPG memakai ITW/ITB, Monitoring, atau Data Badan Usaha.'
+  },
+  tambahan: function () { return (typeof DB !== 'undefined' && DB && DB.hubPemetaan) || []; },
+  hariIni: function () { return hariIni(); }
+});
+function uraiCsv(teks, pemisah) { return KitImpor.uraiCsv(teks, pemisah); }
+function deteksiPemisah(teks) { return KitImpor.deteksiPemisah(teks); }
+function analisaGrid(grid, namaFile) { return KitImpor.analisaGrid(grid, namaFile); }
+function petakanKolom(an, grid) { return KitImpor.petakanKolom(an, grid); }
+function ambilBaris(an, peta, grid) { return KitImpor.ambilBaris(an, peta, grid); }
+function tentukanPeriode(an) { return KitImpor.tentukanPeriode(an); }
+function cekPosisi(jenis, data) { return KitImpor.cekPosisi(jenis, data); }
 
 /* ----------------------- SPPG & nama ----------------------- */
 
@@ -1965,12 +2446,19 @@ async function bacaBerkas(file) {
  * rows hanya baris SPPG (atau NPP yang sudah ditautkan ke SPPG secara manual).
  */
 function uraiLaporan(namaFile, grid, nppDikenal) {
-  var an = analisaGrid(grid, namaFile);
-  var peta = petakanKolom(an, grid);
-  var data = ambilBaris(an, peta, grid);
+  var u = KitImpor.urai(grid, namaFile);
+  var hasil = olahLaporan(u, nppDikenal, namaFile);
+  // 1.6: laporan utuh (semua baris, hanya kolom terpakai) untuk Gudang Laporan KC
+  hasil.lr = KitImpor.GUDANG[u.an.jenis] ? KitImpor.ringkas(u) : null;
+  return hasil;
+}
+
+/** Laporan ringkas dari Gudang Laporan KC → hasil yang sama dengan uraiLaporan. */
+function uraiDariRingkas(lr, nppDikenal) { return olahLaporan(KitImpor.buka(lr), nppDikenal, lr.nama_file); }
+
+function olahLaporan(u, nppDikenal, namaFile) {
+  var an = u.an, data = u.data, per = u.per;
   if (!data.length) throw new Error('Tidak ada baris data yang terbaca.');
-  if (an.posisi) cekPosisi(an.jenis, data);
-  var per = tentukanPeriode(an);
   nppDikenal = nppDikenal || {};
   var sppg = data.filter(function (r) {
     if (an.jenis === 'LENSA_STATUS') return /sppg/i.test(r.segmen || '') || adalahSppg(r.nama) || nppDikenal[r.npp];
@@ -2233,6 +2721,10 @@ function dbKosong() {
     impor: [],         // riwayat impor
     lensa: {},         // dari LENSA PK lewat server: pic:NPP, berkas:…, impor:…, info
     keLensa: {},       // titipan untuk LENSA PK yang belum terkirim ke server
+    hubAntre: [],      // 1.6: laporan ringkas menunggu diunggah ke Gudang Laporan KC (gadget ini saja)
+    hubSeq: 0,         // 1.6: nomor urut Gudang yang sudah ditarik gadget ini
+    hubPemetaan: [],   // 1.6: judul kolom tambahan dari tab PEMETAAN LENSA (lewat Hub)
+    hubInfo: {},
     nppLensa: {},      // NPP binaan kode LENSA (dari laporan ITW/ITB) untuk menyaring laporan tanpa kode pembina
     nppLensaU: 0,
     lensaSejak: '',    // penanda sambungan LENSA yang sudah dikirimi PIC awal
@@ -2327,11 +2819,14 @@ function terapkanImpor(namaFile, h, opsi) {
   var kunci = h.jenis + '|' + h.periode + '|' + (h.pembina || (opsi.lensa ? kodeLensa() : namaFile));
   DB.snap.forEach(function (s) { if (s.kunci === kunci) tandaiUbah('snap', s.id, true); });
   DB.snap = DB.snap.filter(function (s) { return s.kunci !== kunci; });
-  var baru = { id: opsi.lensa ? 'SL' + hashTeks(kunci) : idBaru('S'), kunci: kunci, jenis: h.jenis, periode: h.periode, laporan: h.laporan || '', pembina: h.pembina || '', file: namaFile, waktu: waktuSekarang(), rows: h.rows, _u: Date.now() };
+  // 1.6: laporan jenis Gudang memakai id tetap (sama di semua gadget, juga bila datang lagi dari Hub) + sidik isi
+  var sidik = opsi.gudang || (h.lr && h.lr.sidik) || '';
+  var baru = { id: opsi.lensa ? 'SL' + hashTeks(kunci) : sidik ? 'SG' + hashTeks(kunci) : idBaru('S'), kunci: kunci, jenis: h.jenis, periode: h.periode, laporan: h.laporan || '', pembina: h.pembina || '', file: namaFile, waktu: waktuSekarang(), rows: h.rows, _u: Date.now() };
+  if (sidik) baru.sidik = sidik;
   DB.snap.push(baru);
   tandaiUbah('snap', baru.id);
   rampingkanSnap();
-  DB.impor.unshift({ waktu: waktuSekarang(), file: namaFile + (opsi.lensa ? ' (dari LENSA PK)' : ''), jenis: NAMA_LAPORAN[h.jenis], ok: true, pesan: h.cek, baris: h.rows.length, total: h.total, periode: h.periode });
+  DB.impor.unshift({ waktu: waktuSekarang(), file: namaFile + (opsi.lensa ? ' (dari LENSA PK)' : opsi.dari ? ' (Gudang Laporan KC · ' + opsi.dari + ')' : ''), jenis: NAMA_LAPORAN[h.jenis], ok: true, pesan: h.cek, baris: h.rows.length, total: h.total, periode: h.periode });
   DB.impor = DB.impor.slice(0, 200);
   simpanDb();
 }
@@ -2640,6 +3135,7 @@ async function sinkronkan(opsi) {
       lagi = !!t.lagi;
     }
     if (prosesBerkasLensa()) berubah = true;
+    if (await sinkronHub()) berubah = true; // 1.6: Gudang Laporan KC
     if (berubah) rampingkanSnap();
     if (lensaAktif() && sk.lensa.sejak && DB.lensaSejak !== sk.lensa.sejak) { DB.lensaSejak = sk.lensa.sejak; kirimPicAwalKeLensa(); }
     sk.terakhir = waktuSekarang(); sk.galat = ''; sk.status = 'ok'; sk.terakhirOk = Date.now();
@@ -2769,10 +3265,15 @@ function kirimPicAwalKeLensa() {
   model.units.forEach(function (u) { if ((DB.unit[u.id] || {}).picNama) kirimPicKeLensa(u); });
 }
 
-/** Laporan kiriman LENSA (baris SPPG binaan) diimpor di gadget ini. */
+/** Laporan kiriman LENSA (baris SPPG binaan) diimpor di gadget ini.
+ *  1.6: bila Hub sudah aktif, laporan LENSA datang dari Gudang Laporan KC; kiriman jembatan (untuk gadget ≤ 1.5) dilewati. */
 function prosesBerkasLensa() {
   var ids = Object.keys(DB.lensa || {}).filter(function (k) { return /^berkas:/.test(k) && DB.lensa[k] && DB.lensa[k]._baru && DB.lensa[k].grid; });
   if (!ids.length) return false;
+  if (hubAktif()) {
+    ids.forEach(function (k) { var d = DB.lensa[k]; d.hasil = '· lewat Gudang Laporan KC'; delete d.grid; delete d._baru; });
+    return false;
+  }
   ids.sort(function (a, b) { var p = function (k) { return DB.lensa[k].laporan === 'ITW_ITB' ? 1 : 0; }; return (p(a) - p(b)) || (DB.lensa[a].waktu < DB.lensa[b].waktu ? -1 : 1); });
   var dikenal = {};
   Object.keys(DB.nppUnit).forEach(function (n) { dikenal[n] = true; });
@@ -2884,6 +3385,92 @@ async function periksaGerbang() {
   if (!sinkAktif()) { await tampilkanGerbang('gabung'); return true; }
   if (terkunciTakSinkron()) { await tampilkanGerbang('terkunci'); return true; }
   return false;
+}
+
+/* === 38-hub.js === */
+/* ----------------------------------------------------------------------
+ *  Hub LENSA Suite (Tahap 2A) · Gudang Laporan KC.
+ *  - Laporan ITW/ITB, Monitoring, dan Data BU yang diimpor di Monitor diunggah RINGKAS ke Hub (alamat /exec
+ *    LENSA PK) dengan token perangkat Monitor ini. Tanpa sinyal: menunggu di antrean gadget ini (DB.hubAntre).
+ *    Hub menyimpan laporan utuh sekali (unggahan ganda ditolak) dan langsung mengolah baris binaan LENSA.
+ *  - Laporan yang diunggah dari LENSA PK ditarik per nomor urut (DB.hubSeq); Hub hanya mengirim baris SPPG.
+ *  - Alamat Hub dikirim LENSA PK lewat jembatan (DB.lensa.info.hub). Selama belum ada, jalur lama dipakai.
+ * ---------------------------------------------------------------------- */
+var HUB_POLA_URL = /^https:\/\/script\.google\.com\/(a\/[^\/]+\/)?macros\/s\/[\w\-]+\/exec$/;
+function hubUrl() { var i = (DB.lensa || {}).info || {}; return HUB_POLA_URL.test(String(i.hub || '')) ? String(i.hub) : ''; }
+function hubAktif() { return !!(hubUrl() && terdaftar()); }
+
+/** NPP yang dikenal Monitor (SPPG di daftar & di laporan): ikut disaring Hub walau namanya tidak memuat "SPPG". */
+function nppDikenalMonitor() {
+  var d = {};
+  Object.keys(DB.nppUnit || {}).forEach(function (n) { d[n] = true; });
+  (DB.snap || []).forEach(function (s) { (s.rows || []).forEach(function (r) { if (r.npp) d[r.npp] = true; }); });
+  return d;
+}
+
+/** Laporan hasil impor di gadget ini → antrean unggah Hub. */
+function antreHub(namaFile, lr) {
+  if (!lr) return false;
+  DB.hubAntre = (DB.hubAntre || []).filter(function (x) { return x.lr.sidik !== lr.sidik; });
+  DB.hubAntre.push({ file: namaFile, waktu: waktuSekarang(), lr: lr });
+  DB.hubAntre = DB.hubAntre.slice(-30);
+  return true;
+}
+
+/** Laporan dari Gudang → snapshot Monitor (baris SPPG). Laporan yang sudah ada (sidik sama) dilewati. */
+function terapkanDariHub(x) {
+  var lr = x && x.lr;
+  if (!lr || !lr.sidik || !lr.kolom) return false;
+  if (DB.snap.some(function (s) { return s.sidik === lr.sidik; })) return false;
+  var nama = String(lr.nama_file || 'laporan');
+  try {
+    var h = uraiDariRingkas(lr, nppDikenalMonitor());
+    if (!h.rows.length) return false;
+    terapkanImpor(nama, h, { gudang: lr.sidik, dari: x.app || 'Gudang' });
+    return true;
+  } catch (e) {
+    catatImporGagal(nama + ' (Gudang Laporan KC · ' + (x.app || '') + ')', e.message);
+    return false;
+  }
+}
+
+/** Dipanggil sinkronkan(): unggah antrean, lalu tarik laporan baru. Galat Hub tidak menggagalkan sinkron biasa. */
+async function sinkronHub() {
+  if (!hubAktif()) return false;
+  var url = hubUrl(), berubah = false;
+  DB.hubInfo = DB.hubInfo || {};
+  try {
+    while ((DB.hubAntre || []).length) {
+      var batch = DB.hubAntre.slice(0, 5);
+      var j = await panggilServer({ aksi: 'hub', app: 'monitor', perintah: 'unggah', laporan: batch.map(function (x) { return x.lr; }) }, url);
+      (j.hasil || []).forEach(function (r, i) {
+        var a = batch[i];
+        if (!a) return;
+        DB.impor.unshift({ waktu: waktuSekarang(), file: a.file + ' → Gudang Laporan KC', jenis: NAMA_LAPORAN[a.lr.jenis] || '', ok: !!r.ok,
+          pesan: String(r.ringkas || '').replace(/^Gudang Laporan KC: /, '') + (r.lensa ? ' · ' + r.lensa : '') });
+      });
+      DB.impor = DB.impor.slice(0, 200);
+      DB.hubAntre = DB.hubAntre.slice(batch.length);
+      await simpanDb(true);
+    }
+    var lagi = true, putaran = 0;
+    while (lagi && putaran < 20) {
+      putaran++;
+      var dikenal = nppDikenalMonitor();
+      var t = await panggilServer({ aksi: 'hub', app: 'monitor', perintah: 'tarik', sejak: DB.hubSeq || 0, npp: Object.keys(dikenal) }, url);
+      if (Array.isArray(t.pemetaan) && JSON.stringify(t.pemetaan) !== JSON.stringify(DB.hubPemetaan || [])) { DB.hubPemetaan = t.pemetaan; KitImpor.lupakan(); }
+      (t.laporan || []).forEach(function (x) { if (terapkanDariHub(x)) berubah = true; });
+      DB.hubSeq = Number(t.seq) || DB.hubSeq || 0;
+      lagi = !!t.lagi;
+      await simpanDb(true);
+    }
+    DB.hubInfo = { terakhir: waktuSekarang(), galat: '', versi: '' };
+  } catch (e) {
+    if (e.cabut) throw e;
+    DB.hubInfo = { terakhir: DB.hubInfo.terakhir || '', galat: e.message };
+    simpanDb();
+  }
+  return berubah;
 }
 
 /* === 40-hitung.js === */
@@ -4628,6 +5215,14 @@ LAYAR.data = function () {
 };
 
 /* ---------------- kartu sinkron (Data & pengaturan) ---------------- */
+/** 1.6: status Gudang Laporan KC (Hub LENSA Suite). */
+function blokHub() {
+  var i = DB.hubInfo || {}, antre = (DB.hubAntre || []).length;
+  return '<br><b style="color:var(--teks)">Gudang Laporan KC</b>: ' + (i.galat ? '<span style="color:#9E2A22">kendala: ' + esc(i.galat) + '</span>' : 'tersambung') +
+    (i.terakhir ? ' · terakhir ' + esc(i.terakhir) : '') + (antre ? ' · ' + antre + ' laporan menunggu diunggah' : '') +
+    '<br>Laporan ITW/ITB, Monitoring, dan Data BU cukup diunggah sekali, dari Monitor atau LENSA PK: disimpan sekali di gudang, baris binaan ' + esc(kodeLensa()) +
+    ' langsung diolah LENSA PK, dan baris SPPG dari LENSA PK masuk ke sini.';
+}
 function blokLensa() {
   var L = DB.sinkron.lensa || {}, info = (DB.lensa || {}).info;
   var h = '<div class="lensa-blok"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>Sambungan LENSA PK</b>' +
@@ -4643,7 +5238,8 @@ function blokLensa() {
   h += '<div style="font-size:13px;color:var(--pudar);line-height:1.6">Tukar data terakhir (server): <b style="color:var(--teks)">' + esc(L.terakhir || 'belum') + '</b>' +
     (info ? ' · kode pembina LENSA <b style="color:var(--teks)">' + esc(info.kode || '') + '</b>' : '') + (titip ? ' · ' + titip + ' titipan menunggu dikirim' : '') +
     (L.galat ? '<br><span style="color:#9E2A22">Kendala: ' + esc(L.galat) + '</span>' : '') +
-    '<br>Laporan ITW/ITB, Monitoring, dan Data BU binaan ' + esc(kodeLensa()) + ' yang diimpor di sini diteruskan ke LENSA PK; laporan yang diimpor di LENSA PK masuk ke sini (baris SPPG). Catatan WA, janji bayar, dan PIC ikut bertukar; bila PIC berbeda, yang terakhir diubah yang dipakai.</div>';
+    (hubAktif() ? blokHub() : '<br>Laporan ITW/ITB, Monitoring, dan Data BU binaan ' + esc(kodeLensa()) + ' yang diimpor di sini diteruskan ke LENSA PK; laporan yang diimpor di LENSA PK masuk ke sini (baris SPPG).') +
+    ' Catatan WA, janji bayar, dan PIC ikut bertukar; bila PIC berbeda, yang terakhir diubah yang dipakai.</div>';
   if (impor.length) h += '<div class="label-kecil" style="margin-top:6px">Impor di LENSA PK dari laporan kiriman Monitor</div><div class="daftar-hasil">' + impor.map(function (x) { return '<div class="' + (x.ok ? 'ok' : 'gagal') + '">' + esc(x.waktu || '') + ' · ' + esc(x.ok ? '✓ ' : '✗ ') + esc(String(x.ringkas || '').replace(/^[✓✗]\s*/, '')) + '</div>'; }).join('') + '</div>';
   if (dariLensa.length) h += '<div class="label-kecil" style="margin-top:6px">Laporan dari LENSA PK</div><div class="daftar-hasil">' + dariLensa.map(function (x) { return '<div class="' + (/^✓/.test(x.hasil) ? 'ok' : 'gagal') + '">' + esc(x.waktu || '') + ' · ' + esc(x.nama || '') + ' — ' + esc(x.hasil) + '</div>'; }).join('') + '</div>';
   return h + '</div>';
@@ -4680,19 +5276,21 @@ async function imporBerkasLaporan(files) {
   var dikenal = {};
   Object.keys(DB.nppUnit).forEach(function (n) { dikenal[n] = true; });
   M.units.forEach(function (u) { u.npps.forEach(function (o) { dikenal[o.npp] = true; }); });
-  var hasil = [];
+  var hasil = [], adaHub = false;
   // urutan: ITW/ITB dulu agar SPPG dikenali, lalu yang lain
   var daftar = Array.prototype.slice.call(files).sort(function (a, b) { var p = function (f) { return /itw|itb/i.test(f.name) ? 0 : 1; }; return p(a) - p(b); });
   for (var i = 0; i < daftar.length; i++) {
     var f = daftar[i];
     try {
-      var grid = await bacaBerkas(f), keLensa = '';
-      if (lensaAktif()) {
+      var grid = await bacaBerkas(f), keLensa = '', hub = hubAktif();
+      if (lensaAktif() && !hub) { // jalur lama: Hub belum aktif (LENSA PK < 1.23)
         try { var bl = siapkanBerkasLensa(f.name, grid); if (bl && kirimKeLensa('berkas', { nama: f.name, laporan: bl.jenis, waktu: waktuSekarang(), grid: bl.grid })) keLensa = ' · ' + bl.baris + ' baris binaan ' + kodeLensa() + ' diteruskan ke LENSA PK'; }
         catch (eL) { keLensa = ''; }
       }
       var h;
       try { h = uraiLaporan(f.name, grid, dikenal); } catch (eU) { if (keLensa) eU.message += keLensa; throw eU; }
+      // 1.6: laporan utuh ke Gudang Laporan KC (juga bila tidak ada baris SPPG: berguna bagi LENSA PK)
+      if (hub && antreHub(f.name, h.lr)) { keLensa = ' · dikirim ke Gudang Laporan KC saat sinkron'; adaHub = true; }
       if (!h.rows.length) throw new Error('Tidak ada baris SPPG di file ini (' + h.total + ' baris dibaca)' + (keLensa ? keLensa : '') + '.');
       h.rows.forEach(function (r) { dikenal[r.npp] = true; });
       terapkanImpor(f.name, h);
@@ -4703,6 +5301,7 @@ async function imporBerkasLaporan(files) {
     }
   }
   await simpanDb(true);
+  if (adaHub && sinkAktif()) jadwalSinkron(800);
   UI.hasilImpor = hasil;
   UI.laporan.teks = null;
   M = hitung();
