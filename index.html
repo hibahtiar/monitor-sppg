@@ -350,8 +350,8 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
 <aside class="laci" id="laci" hidden aria-label="Rincian SPPG"></aside>
 <div class="dialog-latar" id="dialogLatar" hidden><div class="dialog" id="dialog" role="dialog" aria-modal="true"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<input type="file" id="pilihBerkas" multiple accept=".csv,.txt,.xlsx" hidden>
-<input type="file" id="pilihDaftar" accept=".csv,.txt,.xlsx" hidden>
+<input type="file" id="pilihBerkas" multiple accept=".csv,.txt,.xlsx,.xls" hidden>
+<input type="file" id="pilihDaftar" accept=".csv,.txt,.xlsx,.xls" hidden>
 <input type="file" id="pilihCadangan" accept=".json,application/json" hidden>
 <script>
 (function () {
@@ -360,7 +360,7 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
 /* =====================================================================
  *  KitImpor — modul Impor bersama LENSA Suite (Tahap 2A).
  *  Satu pengurai laporan sistem (ITW/ITB, Monitoring, Data Badan Usaha, KPI084, KPI085, Kartu Iuran,
- *  Status PK LENSA) untuk mesin LENSA (Apps Script & perangkat), Monitor SPPG, dan Hub.
+ *  Status PK LENSA, 3C: Daftar Iuran Belum Rinci / IBR) untuk mesin LENSA (Apps Script & perangkat), Monitor SPPG, dan Hub.
  *  ES5 murni, tanpa layanan Google: jalan di Apps Script dan di browser.
  *  Laporan diurai sekali di perangkat yang mengunggah, lalu dikirim sebagai "laporan ringkas"
  *  (hanya kolom yang dipakai) ke Gudang Laporan KC.
@@ -467,6 +467,17 @@ var KitImpor = (function () {
       ['rata_kurang_lancar', 'kurang lancar ke diragukan#3', ''], ['rata_diragukan', 'diragukan ke macet#3', ''],
       ['bobot', 'bobot', ''], ['skor', 'skor', '']
     ],
+    // 3C: Daftar Iuran Belum Rinci (per pembina, satu NPP bisa beberapa baris transaksi); disimpan Gudang untuk MyTagihan Desa
+    IBR: [
+      ['npp', 'npp', 'Ya'],
+      ['div', 'div|divisi', ''],
+      ['nama', 'nama pemberi kerja badan usaha|pemberi kerja badan usaha|nama badan usaha|nama perusahaan|nama', ''],
+      ['posting_terakhir', 'posting terakhir|posting', ''],
+      ['tgl_transaksi', 'tgl transaksi|tanggal transaksi', ''],
+      ['kode_transaksi', 'kode transaksi', ''],
+      ['ijt', 'ibr jatuh tempo ijt|ibr jatuh tempo|jatuh tempo|ijt', 'Ya'],
+      ['idm', 'ibr dibayar dimuka idm|ibr dibayar dimuka|dibayar dimuka|idm', '']
+    ],
     KPI085: [
       ['npp', 'npp', 'Ya'],
       ['pembina', 'nama pembina|pembina', 'Ya'],
@@ -485,10 +496,11 @@ var KitImpor = (function () {
     KARTU_IURAN: ['no', 'blth_iuran', 'tgl_bayar', 'jht', 'jkk', 'jkm', 'jp', 'jkp', 'denda', 'total_iuran', 'total_upah', 'jumlah_tk'],
     KPI084: ['no', 'bulan', 'pk_itw', 'pk_lancar', 'pk_kurang_lancar', 'pk_diragukan', 'pk_macet', 'mig_itw', 'mig_lancar', 'mig_kurang_lancar', 'mig_diragukan',
       'cap_itw', 'cap_lancar', 'cap_kurang_lancar', 'cap_diragukan', 'rata_itw', 'rata_lancar', 'rata_kurang_lancar', 'rata_diragukan', 'bobot', 'skor'],
-    KPI085: ['no', 'pembina', 'npp', 'nama', 'kelas_lalu', 'kelas_ini', 'migrasi']
+    KPI085: ['no', 'pembina', 'npp', 'nama', 'kelas_lalu', 'kelas_ini', 'migrasi'],
+    IBR: ['no', 'npp', 'div', 'nama', 'posting_terakhir', 'tgl_transaksi', 'kode_transaksi', 'ijt', 'idm']
   };
 
-  var NAMA_LAPORAN = { DATA_BU: 'Data Badan Usaha', MONITORING: 'Monitoring', ITW_ITB: 'ITW/ITB', KARTU_IURAN: 'Kartu Iuran', KPI084: 'KPI084 Rekap Migrasi Piutang', KPI085: 'KPI085 Detil Migrasi Piutang', LENSA_STATUS: 'STATUS_PK (LENSA)' };
+  var NAMA_LAPORAN = { DATA_BU: 'Data Badan Usaha', MONITORING: 'Monitoring', ITW_ITB: 'ITW/ITB', KARTU_IURAN: 'Kartu Iuran', KPI084: 'KPI084 Rekap Migrasi Piutang', KPI085: 'KPI085 Detil Migrasi Piutang', LENSA_STATUS: 'STATUS_PK (LENSA)', IBR: 'Daftar IBR (Iuran Belum Rinci)' };
   var BULAN_SINGKAT = { jan: 1, feb: 2, mar: 3, apr: 4, mei: 5, may: 5, jun: 6, jul: 7, agu: 8, ags: 8, agt: 8, aug: 8, sep: 9, okt: 10, oct: 10, nov: 11, des: 12, dec: 12 };
   var BULAN_KPI = /^(jan|feb|mar|apr|mei|may|jun|jul|agu|ags|agt|aug|sep|okt|oct|nov|des|dec)[a-z]*$/;
   var TIPE_KOLOM = {
@@ -502,7 +514,8 @@ var KitImpor = (function () {
     tk_na: 'bulat', tk_jumlah: 'bulat', iuran_berjalan: 'angka', tgl_terima: 'tgl', blth_entri: 'blth', nilai_posting: 'angka',
     sipp_prs: 'sipp', ibr_ijt: 'angka', ibr_idm: 'angka',
     tgl_bayar: 'tgl', jht: 'angka', jkk: 'angka', jkm: 'angka', jp: 'angka', jkp: 'angka', denda: 'angka', total_iuran: 'angka',
-    jumlah_tk: 'bulat', kelas_lalu: 'kelas', kelas_ini: 'kelas', migrasi: 'yatidak'
+    jumlah_tk: 'bulat', kelas_lalu: 'kelas', kelas_ini: 'kelas', migrasi: 'yatidak',
+    posting_terakhir: 'blth', tgl_transaksi: 'tgl', kode_transaksi: 'kode', ijt: 'angka', idm: 'angka'
   };
   var SERING_KOSONG = { blth_na: 1, kategori: 1, keps_jp: 1, prog: 1, jkp: 1, denda: 1 };
 
@@ -755,12 +768,13 @@ var KitImpor = (function () {
     ['ITW_ITB', function (t) { return / koef/.test(t) && / itb /.test(t); }],
     ['ITW_ITB', function (t) { return /kecukupan ibr/.test(t) && /(blm posting|belum posting|penilaian)/.test(t); }],
     ['KARTU_IURAN', function (t) { return /blth iuran/.test(t) && /(tanggal|tgl) bayar/.test(t); }],
+    ['IBR', function (t) { return (/jatuh tempo/.test(t) && /dibayar dimuka/.test(t)) || (/kode transaksi/.test(t) && / ijt /.test(t)); }],
     ['MONITORING', function (t) { return /(penambahan|pengurangan)/.test(t) && /aktif/.test(t); }],
     ['DATA_BU', function (t) { return /(nama ilo|kode ilo|rate jkk)/.test(t); }]
   ];
   var ATURAN_FILE = [
     ['KPI084', /kpi\s*_?084/], ['KPI085', /kpi\s*_?085/], ['LENSA_STATUS', /status.?pk/], ['ITW_ITB', /itw|itb/], ['KARTU_IURAN', /kartu/],
-    ['MONITORING', /monitor/], ['DATA_BU', /badan.?usaha|dbu|data.?bu/]
+    ['MONITORING', /monitor/], ['DATA_BU', /badan.?usaha|dbu|data.?bu/], ['IBR', /ibr|belum.?rinci/]
   ];
   function dipakai(j) { return CFG.jenis.indexOf(j) >= 0; }
   function tebakJenis(teks, namaFile) {
@@ -956,10 +970,21 @@ var KitImpor = (function () {
     return peta;
   }
 
+  /**
+   * Baris kelompok "Pembina : AB123456 - NAMA" (laporan se-KC: satu kelompok per pembina, judul kolom berulang)
+   * → kode pembina untuk baris-baris di bawahnya. 3C: untuk IBR; 3C.1: untuk semua jenis laporan ber-NPP.
+   */
+  var POLA_PEMBINA = /pembina\s*:?\s*([A-Z]{2}\d{6})/i;
   function ambilBaris(an, peta, grid) {
-    var out = [], prev = null;
+    var out = [], prev = null, pembinaGrup = '';
+    for (var r0 = 0; r0 < an.mulai; r0++) { var m0 = (grid[r0] || []).join(' ').match(POLA_PEMBINA); if (m0) pembinaGrup = m0[1].toUpperCase(); }
     for (var r = an.mulai; r < grid.length; r++) {
       var row = grid[r];
+      if (peta.npp !== undefined && !rapikanNpp(row[peta.npp])) {
+        var mP = row.join(' ').match(POLA_PEMBINA);
+        if (mP) pembinaGrup = mP[1].toUpperCase();
+        if (an.jenis === 'IBR') continue; // judul kelompok, judul kolom berulang, jumlah
+      }
       var o = {};
       Object.keys(peta).forEach(function (k) {
         var x = row[peta[k]];
@@ -981,6 +1006,7 @@ var KitImpor = (function () {
       if (npp) {
         o.npp = npp;
         o.div = rapikanDiv(o.div);
+        if (!o.pembina && pembinaGrup) o.pembina = pembinaGrup;
         out.push(o);
         prev = o;
         continue;
@@ -1144,7 +1170,7 @@ var KitImpor = (function () {
   /* ---------------- laporan ringkas (dikirim ke Gudang) ---------------- */
 
   /** Jenis yang disimpan di Gudang Laporan KC (Kartu Iuran tetap di LENSA; Status PK hanya Monitor). */
-  var GUDANG = { ITW_ITB: true, MONITORING: true, DATA_BU: true, KPI084: true, KPI085: true };
+  var GUDANG = { ITW_ITB: true, MONITORING: true, DATA_BU: true, KPI084: true, KPI085: true, IBR: true };
   var MAKS_JUDUL_TEKS = 4000;
 
   /** Hasil urai → laporan ringkas: hanya kolom yang terbaca, nilai teks apa adanya. */
@@ -1160,6 +1186,10 @@ var KitImpor = (function () {
       posisi: !!h.an.posisi, menurutIsi: !!h.an.menurutIsi,
       judulTeks: String(h.an.judulTeks || '').slice(0, MAKS_JUDUL_TEKS), rekap: h.rekap || null
     };
+    // laporan se-KC (beberapa pembina): judul (pembina kelompok pertama) tidak mewakili seluruh laporan → 'SEMUA'
+    var iPb = kolom.indexOf('pembina'), kode = {};
+    if (iPb >= 0) lr.baris.forEach(function (r) { var m = String(r[iPb] || '').toUpperCase().match(/[A-Z]{2}\d{6}/); if (m) kode[m[0]] = true; });
+    if (Object.keys(kode).length > 1) { lr.per.pembina = ''; lr.per.namaPembina = ''; }
     lr.pembina = pembinaLaporan(lr);
     lr.sidik = sidik(lr);
     return lr;
@@ -1258,6 +1288,308 @@ var KitImpor = (function () {
     adalahSppg: adalahSppg, norm: norm, keAngka: keAngka, keTanggal: keTanggal, keBlth: keBlth, keYT: keYT, rapikanNpp: rapikanNpp, rapikanDiv: rapikanDiv,
     rusakExcel: rusakExcel, kelasDariTeks: kelasDariTeks, judulKata: judulKata
   };
+})();
+/* =====================================================================
+ *  KitXls — pembaca file .xls untuk LENSA Suite (3C.1). ES5, tanpa pustaka luar, jalan di browser dan Node (uji).
+ *  File dibaca di perangkat saja; yang dikirim ke spreadsheet/Gudang tetap hanya laporan ringkas (bukan filenya).
+ *
+ *  Unduhan ".xls" dari sistem bisa berupa salah satu dari:
+ *   1. Excel 97–2003 biner (BIFF8; juga BIFF5) di dalam wadah OLE2  → dibaca langsung
+ *   2. Tabel HTML yang diberi nama .xls                            → dibaca (colspan/rowspan dijaga posisinya)
+ *   3. Excel 2003 XML (SpreadsheetML)                              → dibaca
+ *   4. Teks biasa (CSV/TSV) bernama .xls                           → { teks } untuk pengurai CSV yang sudah ada
+ *  Hasil: { jenis, grid } — grid sama bentuknya dengan pembaca .xlsx (sel teks; angka rapi; tanggal dd-mm-yyyy).
+ *  Sel gabungan: nilai hanya di sel kiri-atas (sama seperti .xlsx/CSV), sehingga posisi kolom sama.
+ * ===================================================================== */
+var KitXls = (function () {
+  var TGL_BAWAAN = { 14: 1, 15: 1, 16: 1, 17: 1, 22: 1, 27: 1, 30: 1, 36: 1, 50: 1, 57: 1 };
+
+  function pad2(n) { return ('0' + n).slice(-2); }
+  function angkaRapi(n) {
+    if (!isFinite(n)) return String(n);
+    if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+    return String(Math.round(n * 1e6) / 1e6);
+  }
+  function tglSerial(v, d1904) {
+    var d = new Date(Date.UTC(d1904 ? 1904 : 1899, d1904 ? 0 : 11, d1904 ? 1 : 30) + Math.round(v) * 86400000);
+    return pad2(d.getUTCDate()) + '-' + pad2(d.getUTCMonth() + 1) + '-' + d.getUTCFullYear();
+  }
+  function formatTanggal(kode) {
+    var b = String(kode || '').toLowerCase().replace(/"[^"]*"|\[[^\]]*\]|\\./g, '');
+    return /[dy]/.test(b) || (/m/.test(b) && !/[hs]/.test(b) && /[\/\-\.]/.test(b));
+  }
+  function dekode(u8, cp) {
+    if (typeof TextDecoder !== 'undefined') {
+      var t = new TextDecoder(cp || 'utf-8').decode(u8);
+      if (!cp && t.indexOf('\uFFFD') >= 0) t = new TextDecoder('windows-1252').decode(u8);
+      return t;
+    }
+    var s = ''; for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return s;
+  }
+  function rapiGrid(grid) {
+    var out = [];
+    for (var r = 0; r < grid.length; r++) {
+      var b = grid[r] || [];
+      for (var c = 0; c < b.length; c++) if (b[c] === undefined || b[c] === null) b[c] = '';
+      while (b.length && b[b.length - 1] === '') b.pop();
+      out.push(b);
+    }
+    while (out.length && !out[out.length - 1].length) out.pop();
+    return out;
+  }
+
+  /* ---------------- wadah OLE2 (Compound File) ---------------- */
+  function bukaOle(u8) {
+    var dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    var u16 = function (o) { return dv.getUint16(o, true); }, u32 = function (o) { return dv.getUint32(o, true); };
+    var ss = 1 << u16(0x1E), mss = 1 << u16(0x20), cutoff = u32(0x38);
+    var ofs = function (n) { return (n + 1) * ss; };
+    var fatSek = [], i, n;
+    for (i = 0; i < 109; i++) { n = u32(0x4C + i * 4); if (n < 0xFFFFFFFA) fatSek.push(n); }
+    var difat = u32(0x44), nDifat = u32(0x48), per = ss / 4 - 1;
+    for (var d = 0; d < nDifat && difat < 0xFFFFFFFA; d++) {
+      for (i = 0; i < per; i++) { n = u32(ofs(difat) + i * 4); if (n < 0xFFFFFFFA) fatSek.push(n); }
+      difat = u32(ofs(difat) + per * 4);
+    }
+    var fat = [];
+    fatSek.forEach(function (s) { for (var j = 0; j < ss / 4; j++) fat.push(u32(ofs(s) + j * 4)); });
+    function rantai(awal, tabel) { var out = [], x = awal, jaga = 0; while (x < 0xFFFFFFFA && jaga++ < 1e7) { out.push(x); x = tabel[x]; } return out; }
+    function bacaBesar(awal, ukuran) {
+      var out = new Uint8Array(ukuran), p = 0;
+      rantai(awal, fat).forEach(function (s) { var o = ofs(s), k = Math.min(ss, ukuran - p); if (k > 0) { out.set(u8.subarray(o, o + k), p); p += k; } });
+      return out;
+    }
+    var dir = [], dirData = bacaBesar(u32(0x30), rantai(u32(0x30), fat).length * ss);
+    var dd = new DataView(dirData.buffer);
+    for (var e = 0; e + 128 <= dirData.length; e += 128) {
+      var pj = dd.getUint16(e + 0x40, true), nama = '';
+      for (var c = 0; c + 2 < pj; c += 2) nama += String.fromCharCode(dd.getUint16(e + c, true));
+      dir.push({ nama: nama, tipe: dirData[e + 0x42], awal: dd.getUint32(e + 0x74, true), ukuran: dd.getUint32(e + 0x78, true) });
+    }
+    var akar = dir.filter(function (x) { return x.tipe === 5; })[0], mini = null, minifat = null;
+    function bacaMini(awal, ukuran) {
+      if (!mini) {
+        mini = bacaBesar(akar.awal, akar.ukuran);
+        minifat = []; var mfAwal = u32(0x3C);
+        if (mfAwal < 0xFFFFFFFA) rantai(mfAwal, fat).forEach(function (s) { for (var j = 0; j < ss / 4; j++) minifat.push(u32(ofs(s) + j * 4)); });
+      }
+      var out = new Uint8Array(ukuran), p = 0;
+      rantai(awal, minifat).forEach(function (s) { var o = s * mss, k = Math.min(mss, ukuran - p); if (k > 0) { out.set(mini.subarray(o, o + k), p); p += k; } });
+      return out;
+    }
+    return {
+      aliran: function (nama) {
+        var x = dir.filter(function (y) { return y.tipe === 2 && y.nama.toLowerCase() === nama.toLowerCase(); })[0];
+        if (!x) return null;
+        return x.ukuran < cutoff ? bacaMini(x.awal, x.ukuran) : bacaBesar(x.awal, x.ukuran);
+      }
+    };
+  }
+
+  /* ---------------- BIFF8 / BIFF5 ---------------- */
+  function rk(v) {
+    var n;
+    if (v & 2) n = v >> 2;
+    else { var b = new DataView(new ArrayBuffer(8)); b.setUint32(4, v & 0xFFFFFFFC, true); b.setUint32(0, 0, true); n = b.getFloat64(0, true); }
+    return v & 1 ? n / 100 : n;
+  }
+  function bacaBiff(u8) {
+    var ole = bukaOle(u8), wb = ole.aliran('Workbook') || ole.aliran('Book');
+    if (!wb) throw new Error('File .xls ini tidak berisi buku kerja Excel.');
+    var dv = new DataView(wb.buffer, wb.byteOffset, wb.byteLength);
+    var u16 = function (o) { return dv.getUint16(o, true); }, u32 = function (o) { return dv.getUint32(o, true); };
+    var rek = [], p = 0;
+    while (p + 4 <= wb.length) { var t = u16(p), l = u16(p + 2); rek.push({ t: t, o: p + 4, l: l, awal: p }); p += 4 + l; }
+    var biff8 = true, cp = 'windows-1252', d1904 = false, xf = [], fmt = {}, sst = [], lembar = [];
+    function teks8(o, cch) { return dekode(wb.subarray(o, o + cch), biff8 ? 'iso-8859-1' : (cp === 'utf-16le' ? 'windows-1252' : cp)); }
+    function teks16(o, cch) { var s = ''; for (var i = 0; i < cch; i++) s += String.fromCharCode(u16(o + i * 2)); return s; }
+    // XLUnicodeString (cch 16 bit) di BIFF8; BIFF5: cch 16 bit + 8-bit
+    function strU(o, cchByte) {
+      var cch = cchByte ? wb[o] : u16(o), q = o + (cchByte ? 1 : 2);
+      if (!biff8) return teks8(q, cch);
+      var fl = wb[q]; q++;
+      return fl & 1 ? teks16(q, cch) : teks8(q, cch);
+    }
+    // SST dengan CONTINUE
+    function bacaSst(i0) {
+      var bagian = [rek[i0]], j = i0 + 1;
+      while (j < rek.length && rek[j].t === 0x003C) { bagian.push(rek[j]); j++; }
+      var bi = 0, o = bagian[0].o + 8, akhir = bagian[0].o + bagian[0].l, unik = u32(bagian[0].o + 4), out = [];
+      function pastikan() { if (o >= akhir && bi + 1 < bagian.length) { bi++; o = bagian[bi].o; akhir = o + bagian[bi].l; } }
+      function lewati(k) { while (k > 0) { pastikan(); var a = Math.min(k, akhir - o); o += a; k -= a; } }
+      for (var s = 0; s < unik; s++) {
+        pastikan();
+        if (o >= akhir) break;
+        var cch = u16(o); o += 2; pastikan();
+        var fl = wb[o]; o++;
+        var nRun = 0, nExt = 0;
+        if (fl & 8) { pastikan(); nRun = u16(o); o += 2; }
+        if (fl & 4) { pastikan(); nExt = u32(o); o += 4; }
+        var str = '', sisa = cch, lebar = fl & 1 ? 2 : 1;
+        while (sisa > 0) {
+          if (o >= akhir) { bi++; if (bi >= bagian.length) break; o = bagian[bi].o; akhir = o + bagian[bi].l; lebar = wb[o] & 1 ? 2 : 1; o++; }
+          var muat = Math.min(sisa, Math.floor((akhir - o) / lebar));
+          str += lebar === 2 ? teks16(o, muat) : teks8(o, muat);
+          o += muat * lebar; sisa -= muat;
+        }
+        lewati(nRun * 4 + nExt);
+        out.push(str);
+      }
+      return out;
+    }
+    var i, r;
+    for (i = 0; i < rek.length; i++) {
+      r = rek[i];
+      if (r.t === 0x0809 && i === 0) biff8 = u16(r.o) === 0x0600;
+      else if (r.t === 0x002F) throw new Error('File .xls ini dikunci sandi. Buka di Excel/WPS, lepas sandinya, lalu simpan ulang.');
+      else if (r.t === 0x0042) { var c = u16(r.o); cp = c === 1200 ? 'utf-16le' : c === 65001 ? 'utf-8' : 'windows-1252'; }
+      else if (r.t === 0x0022) d1904 = u16(r.o) === 1;
+      else if (r.t === 0x00E0) xf.push(u16(r.o + 2));
+      else if (r.t === 0x041E) fmt[u16(r.o)] = biff8 ? strU(r.o + 2) : strU(r.o + 2, true);
+      else if (r.t === 0x00FC) sst = bacaSst(i);
+      else if (r.t === 0x0085) {
+        var nm = biff8 ? (function () { var cch = wb[r.o + 6], fl = wb[r.o + 7]; return fl & 1 ? teks16(r.o + 8, cch) : teks8(r.o + 8, cch); })() : teks8(r.o + 7, wb[r.o + 6]);
+        lembar.push({ nama: nm, pos: u32(r.o), jenis: wb[r.o + 5] });
+      } else if (r.t === 0x000A) break; // akhir globals
+    }
+    var tglXf = xf.map(function (f) { return !!(TGL_BAWAAN[f] || (fmt[f] !== undefined && formatTanggal(fmt[f]))); });
+    function nilaiAngka(v, ixfe) { return tglXf[ixfe] && v > 1000 && v < 80000 ? tglSerial(v, d1904) : angkaRapi(v); }
+    var idx = {}; rek.forEach(function (x, k) { idx[x.awal] = k; });
+    var hasil = [];
+    lembar.filter(function (l) { return l.jenis === 0; }).forEach(function (l) {
+      var k = idx[l.pos], grid = [], tunggu = null;
+      if (k === undefined) return;
+      function taruh(row, col, v) { if (!grid[row]) grid[row] = []; grid[row][col] = String(v).trim(); }
+      for (var j = k + 1; j < rek.length; j++) {
+        var x = rek[j], o = x.o;
+        if (x.t === 0x000A) break;
+        if (x.t === 0x00FD) taruh(u16(o), u16(o + 2), sst[u32(o + 6)] || '');
+        else if (x.t === 0x0204 || x.t === 0x00D6) taruh(u16(o), u16(o + 2), strU(o + 6));
+        else if (x.t === 0x0203) taruh(u16(o), u16(o + 2), nilaiAngka(dv.getFloat64(o + 6, true), u16(o + 4)));
+        else if (x.t === 0x027E) taruh(u16(o), u16(o + 2), nilaiAngka(rk(u32(o + 6)), u16(o + 4)));
+        else if (x.t === 0x00BD) {
+          var baris = u16(o), c0 = u16(o + 2), nr = (x.l - 6) / 6;
+          for (var q = 0; q < nr; q++) taruh(baris, c0 + q, nilaiAngka(rk(u32(o + 4 + q * 6 + 2)), u16(o + 4 + q * 6)));
+        } else if (x.t === 0x0205) { if (!wb[o + 7]) taruh(u16(o), u16(o + 2), wb[o + 6] ? 'TRUE' : 'FALSE'); }
+        else if (x.t === 0x0006) {
+          if (u16(o + 12) === 0xFFFF) {
+            var ty = wb[o + 6];
+            if (ty === 0) tunggu = { r: u16(o), c: u16(o + 2) };
+            else if (ty === 1) taruh(u16(o), u16(o + 2), wb[o + 8] ? 'TRUE' : 'FALSE');
+          } else taruh(u16(o), u16(o + 2), nilaiAngka(dv.getFloat64(o + 6, true), u16(o + 4)));
+        } else if (x.t === 0x0207 && tunggu) { taruh(tunggu.r, tunggu.c, strU(o)); tunggu = null; }
+      }
+      hasil.push({ nama: l.nama, grid: rapiGrid(grid) });
+    });
+    return hasil;
+  }
+
+  /* ---------------- HTML ---------------- */
+  function entitas(s) {
+    return String(s).replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+      .replace(/&#x([0-9a-f]+);/gi, function (m, h) { return String.fromCharCode(parseInt(h, 16)); }).replace(/&#(\d+);/g, function (m, d) { return String.fromCharCode(+d); });
+  }
+  function atr(s, nama) { var m = String(s).match(new RegExp('\\b' + nama + '\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i')); return m ? (m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4]) : ''; }
+  function tabelKeGrid(isiTabel) {
+    var grid = [], rr = /<tr\b[^>]*>([\s\S]*?)(?=<tr\b|$)/gi, tr, row = 0;
+    while ((tr = rr.exec(isiTabel))) {
+      var rc = /<t([dh])\b([^>]*)>([\s\S]*?)(?=<t[dh]\b|<\/tr>|$)/gi, td, col = 0;
+      if (!grid[row]) grid[row] = [];
+      while ((td = rc.exec(tr[1]))) {
+        while (grid[row][col] !== undefined) col++;
+        var cs = Math.max(1, +atr(td[2], 'colspan') || 1), rs = Math.max(1, +atr(td[2], 'rowspan') || 1);
+        var v = entitas(td[3].replace(/<\/t[dh]>[\s\S]*$/i, '').replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+        for (var a = 0; a < rs; a++) for (var b = 0; b < cs; b++) {
+          if (!grid[row + a]) grid[row + a] = [];
+          grid[row + a][col + b] = a === 0 && b === 0 ? v : '';
+        }
+        col += cs;
+      }
+      row++;
+    }
+    return grid;
+  }
+  /** Halaman web bernama .xls: tabel-tabel ditumpuk berurutan seperti dibuka Excel; teks di luar tabel (judul, "Pembina : …") jadi baris sendiri. */
+  function bacaHtml(teks) {
+    var badan = (teks.match(/<body\b[^>]*>([\s\S]*?)(<\/body>|$)/i) || [0, teks])[1]
+      .replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '');
+    var grid = [], ada = false, rt = /<table\b[^>]*>([\s\S]*?)<\/table>/gi, t, akhir = 0;
+    function teksLuar(s) {
+      entitas(s.replace(/<br\s*\/?>|<\/(p|div|h\d|li)>/gi, '\n').replace(/<[^>]+>/g, '')).split('\n').forEach(function (l) {
+        l = l.replace(/\s+/g, ' ').trim(); if (l) grid.push([l]);
+      });
+    }
+    while ((t = rt.exec(badan))) {
+      teksLuar(badan.slice(akhir, t.index));
+      tabelKeGrid(t[1]).forEach(function (r) { grid.push(r); });
+      akhir = t.index + t[0].length; ada = true;
+    }
+    if (!ada) throw new Error('File .xls ini berisi halaman web tanpa tabel.');
+    teksLuar(badan.slice(akhir));
+    return [{ nama: 'Halaman', grid: rapiGrid(grid) }];
+  }
+
+  /* ---------------- Excel 2003 XML (SpreadsheetML) ---------------- */
+  function bacaXml(teks) {
+    var hasil = [], rw = /<(?:ss:)?Worksheet\b([^>]*)>([\s\S]*?)<\/(?:ss:)?Worksheet>/gi, w;
+    while ((w = rw.exec(teks))) {
+      var grid = [], rr = /<(?:ss:)?Row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:ss:)?Row>)/gi, r, row = -1;
+      while ((r = rr.exec(w[2]))) {
+        var ri = +atr(r[1], 'ss:Index'); row = ri ? ri - 1 : row + 1;
+        if (!grid[row]) grid[row] = [];
+        var rc = /<(?:ss:)?Cell\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:ss:)?Cell>)/gi, c, col = -1;
+        while ((c = rc.exec(r[2] || ''))) {
+          var ci = +atr(c[1], 'ss:Index'); col = ci ? ci - 1 : col + 1;
+          while (grid[row][col] !== undefined && !ci) col++;
+          var dm = (c[2] || '').match(/<(?:ss:)?Data\b([^>]*)>([\s\S]*?)<\/(?:ss:)?Data>/i), v = '';
+          if (dm) {
+            var tipe = atr(dm[1], 'ss:Type'), raw = entitas(dm[2].replace(/<[^>]+>/g, ''));
+            if (tipe === 'Number') v = angkaRapi(Number(raw));
+            else if (tipe === 'DateTime') { var m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/); v = m ? m[3] + '-' + m[2] + '-' + m[1] : raw; }
+            else if (tipe === 'Boolean') v = raw === '1' ? 'TRUE' : 'FALSE';
+            else v = raw;
+          }
+          var ma = +atr(c[1], 'ss:MergeAcross') || 0, md = +atr(c[1], 'ss:MergeDown') || 0;
+          for (var a = 0; a <= md; a++) for (var b = 0; b <= ma; b++) {
+            if (!grid[row + a]) grid[row + a] = [];
+            if (grid[row + a][col + b] === undefined) grid[row + a][col + b] = a === 0 && b === 0 ? String(v).trim() : '';
+          }
+          col += ma;
+        }
+      }
+      hasil.push({ nama: atr(w[1], 'ss:Name') || 'Sheet' + (hasil.length + 1), grid: rapiGrid(grid) });
+    }
+    if (!hasil.length) throw new Error('File .xls (XML) ini tidak berisi lembar kerja.');
+    return hasil;
+  }
+
+  /** Jenis isi file .xls dari bytenya. */
+  function jenis(u8) {
+    if (u8.length >= 8 && u8[0] === 0xD0 && u8[1] === 0xCF && u8[2] === 0x11 && u8[3] === 0xE0) return 'biff';
+    var awal = dekode(u8.subarray(0, Math.min(u8.length, 8192))).replace(/^\uFEFF/, '').toLowerCase();
+    if (/urn:schemas-microsoft-com:office:spreadsheet/.test(awal) && /<(ss:)?workbook\b/.test(awal)) return 'xml';
+    if (/<html\b|<table\b|<!doctype html|<meta\b|<body\b/.test(awal)) return 'html';
+    if (u8.length >= 4 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 3 && u8[3] === 4) return 'xlsx';
+    return 'teks';
+  }
+  /**
+   * buf (ArrayBuffer/Uint8Array) → { jenis, grid, lembar } untuk biff/html/xml; { jenis:'xlsx' } (dibaca pembaca .xlsx);
+   * { jenis:'teks', teks } (diurai sebagai CSV). grid = lembar pertama yang berisi ≥ 2 baris (sama dengan pembaca .xlsx).
+   */
+  function baca(buf) {
+    var u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf), j = jenis(u8), daftar;
+    if (j === 'xlsx') return { jenis: j };
+    if (j === 'teks') return { jenis: j, teks: dekode(u8) };
+    try { daftar = j === 'biff' ? bacaBiff(u8) : j === 'xml' ? bacaXml(dekode(u8)) : bacaHtml(dekode(u8)); }
+    catch (e) {
+      if (/^File \.xls/.test(e.message)) throw e;
+      throw new Error('File .xls tidak bisa dibaca (rusak atau bentuknya tidak dikenal). Buka di Excel/WPS lalu Simpan Sebagai .xlsx atau CSV.');
+    }
+    var pilih = daftar.filter(function (l) { return l.grid.filter(function (r) { return r.some(function (x) { return x !== ''; }); }).length >= 2; })[0];
+    if (!pilih) throw new Error('Lembar Excel kosong.');
+    return { jenis: j, grid: pilih.grid, lembar: daftar.map(function (l) { return l.nama; }) };
+  }
+  return { baca: baca, jenis: jenis };
 })();
 /* =====================================================================
  *  KitSandi — PIN perangkat bersama LENSA Suite (Tahap 3).
@@ -2004,7 +2336,7 @@ var CSS_PESAN_WA = "*{box-sizing:border-box}\n.modul-wa{font:15px/1.45 system-ui
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '2.0.0';
+var VERSI = '2.0.1';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -2478,8 +2810,13 @@ function kunciYayasan(y) { return norm(String(y || '').replace(/\b(pamekasan|mad
 async function bacaBerkas(file) {
   var nama = file.name || 'berkas';
   if (/\.xlsx$/i.test(nama)) return bacaXlsx(await file.arrayBuffer());
-  if (/\.xls$/i.test(nama)) throw new Error('Format .xls lama belum didukung. Buka di Excel lalu Simpan Sebagai .xlsx atau CSV.');
   var buf = await file.arrayBuffer();
+  if (/\.xls$/i.test(nama)) { // 2.0.1: .xls dibaca di perangkat (biner Excel 97–2003, HTML, Excel 2003 XML)
+    var x = KitXls.baca(buf);
+    if (x.jenis === 'xlsx') return bacaXlsx(buf);
+    if (x.jenis !== 'teks') return x.grid;
+    return uraiCsv(x.teks, deteksiPemisah(x.teks));
+  }
   var teks = new TextDecoder('utf-8').decode(buf);
   if (teks.indexOf('�') >= 0) teks = new TextDecoder('windows-1252').decode(buf);
   return uraiCsv(teks, deteksiPemisah(teks));
@@ -5172,7 +5509,7 @@ function blokPeringatan() {
 function layarKosong() {
   return '<div class="kepala"><div><h1>Selamat datang di Monitor SPPG</h1><div class="sub">Pantau pembayaran iuran SPPG se-KC, catat hasil WA ke PIC, dan siapkan laporan harian untuk grup.</div></div></div>' +
     '<div class="lepas" data-lepas="laporan">' + ikon('unggah').replace('<svg', '<svg style="width:36px;height:36px;color:var(--biru)"') +
-    '<b>Mulai dengan mengimpor laporan sistem</b><p>Tarik file ke sini, atau pilih file. Bisa beberapa sekaligus (CSV atau XLSX).</p>' +
+    '<b>Mulai dengan mengimpor laporan sistem</b><p>Tarik file ke sini, atau pilih file. Bisa beberapa sekaligus (XLS, XLSX, atau CSV).</p>' +
     '<button class="btn utama" data-a="pilihBerkas">' + ikon('unggah') + 'Pilih file laporan</button></div>' +
     '<div class="grid2"><div class="kartu"><h2>Laporan yang dipakai</h2><ol style="margin:10px 0 0;padding-left:20px;line-height:1.7">' +
     '<li><b>ITW/ITB</b> — status bayar dan koefisien (wajib). Untuk se-KC, impor laporan semua pembina; boleh beberapa file.</li>' +
@@ -5393,7 +5730,7 @@ LAYAR.data_setelah = function () { var w = $('#wadahRedaksi'); if (w) pasangPust
 LAYAR.data = function () {
   var pgt = DB.pengaturan;
   var h = '<div class="kepala"><div><h1>Data & pengaturan</h1><div class="sub">Impor laporan, cadangan, dan isi pesan.</div></div></div>';
-  h += '<div class="lepas" data-lepas="laporan">' + ikon('unggah').replace('<svg', '<svg style="width:32px;height:32px;color:var(--biru)"') + '<b>Impor laporan sistem</b><p>ITW/ITB (wajib), Monitoring, Data Badan Usaha, atau STATUS_PK dari LENSA PK. CSV atau XLSX, boleh beberapa file sekaligus (mis. satu file per pembina).</p>' +
+  h += '<div class="lepas" data-lepas="laporan">' + ikon('unggah').replace('<svg', '<svg style="width:32px;height:32px;color:var(--biru)"') + '<b>Impor laporan sistem</b><p>ITW/ITB (wajib), Monitoring, Data Badan Usaha, atau STATUS_PK dari LENSA PK. XLS, XLSX, atau CSV, boleh beberapa file sekaligus (satu file semua pembina atau satu file per pembina).</p>' +
     '<button class="btn utama" data-a="pilihBerkas">' + ikon('unggah') + 'Pilih file</button></div>';
   if (UI.hasilImpor.length) h += '<div class="kartu"><div class="kartu-kepala"><h2>Hasil impor</h2></div><div class="daftar-hasil">' + UI.hasilImpor.map(function (x) {
     return '<div class="' + (x.ok ? 'ok' : 'gagal') + '">' + (x.ok ? '✓ ' : '✗ ') + '<b>' + esc(x.file) + '</b> — ' + esc(x.pesan) + '</div>';
