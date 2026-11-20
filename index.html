@@ -1259,6 +1259,50 @@ var KitImpor = (function () {
     rusakExcel: rusakExcel, kelasDariTeks: kelasDariTeks, judulKata: judulKata
   };
 })();
+/* =====================================================================
+ *  KitSandi — PIN perangkat bersama LENSA Suite (Tahap 3).
+ *  Data di perangkat dikunci dengan PIN: kunci AES-GCM 256 bit diturunkan dari PIN (PBKDF2-SHA256, 250.000 putaran),
+ *  isi dimampatkan (gzip) lalu disandikan. Rumus sama dengan PIN LENSA PK 2.x, sehingga semua aplikasi seragam.
+ *  PIN tidak pernah disimpan; yang tersimpan hanya garam + isi tersandi. Lupa PIN = data di perangkat harus dihapus
+ *  (data di Google Sheet tetap aman), lalu masuk lagi dengan kode undangan.
+ * ===================================================================== */
+var KitSandi = (function () {
+  var ULANG = 250000;
+  function keB64(buf) { var u = buf instanceof Uint8Array ? buf : new Uint8Array(buf), s = ''; for (var i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); }
+  function dariB64(s) { var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  function pinSah(pin) { return /^\d{4,12}$/.test(String(pin || '')); }
+  function garamBaru() { return crypto.getRandomValues(new Uint8Array(16)); }
+  async function kunciDariPin(pin, garam) {
+    var dasar = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(pin)), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: garam, iterations: ULANG, hash: 'SHA-256' }, dasar, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  async function mampat(teks) {
+    var b = new TextEncoder().encode(teks);
+    if (typeof CompressionStream === 'undefined') return { z: 0, b: b };
+    var s = new Blob([b]).stream().pipeThrough(new CompressionStream('gzip'));
+    return { z: 1, b: new Uint8Array(await new Response(s).arrayBuffer()) };
+  }
+  async function urai(b, z) {
+    if (!z) return new TextDecoder().decode(b);
+    var s = new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(s).text();
+  }
+  /** obj → rekaman tersandi { terkunci, garam, iv, z, isi (ArrayBuffer) }. */
+  async function sandikan(obj, kunci, garam) {
+    var m = await mampat(JSON.stringify(obj)), iv = crypto.getRandomValues(new Uint8Array(12));
+    var isi = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, kunci, m.b);
+    return { terkunci: true, garam: keB64(garam), iv: keB64(iv), z: m.z, isi: isi };
+  }
+  /** Rekaman tersandi → obj. PIN salah → melempar galat. isi boleh ArrayBuffer atau teks base64 (file cadangan). */
+  async function bukaSandi(rek, kunci) {
+    var isi = rek.isi instanceof ArrayBuffer || ArrayBuffer.isView(rek.isi) ? rek.isi : dariB64(rek.isi);
+    var b = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: dariB64(rek.iv) }, kunci, isi);
+    return JSON.parse(await urai(new Uint8Array(b), rek.z));
+  }
+  /** Rekaman tersandi untuk disimpan sebagai teks (localStorage / file cadangan). */
+  function keTeks(rek) { return Object.assign({}, rek, { isi: keB64(rek.isi) }); }
+  return { ULANG: ULANG, pinSah: pinSah, garamBaru: garamBaru, kunciDariPin: kunciDariPin, sandikan: sandikan, bukaSandi: bukaSandi, keTeks: keTeks, keB64: keB64, dariB64: dariB64 };
+})();
 /* ======================================================================
  *  KIT LENSA Suite · redaksi.js 1.0 — penyusun pesan WhatsApp bersama.
  *  Dipakai di: mesin LENSA (Apps Script dan perangkat), aplikasi LENSA PK, Monitor SPPG.
@@ -1589,7 +1633,7 @@ var KitRedaksi = (function () {
   };
 })();
 KitRedaksi.pasangBawaan([{"id":"K-pembuka","jenis":"Kalimat","tingkat":"Umum","kunci":"pembuka","nama":"Salam pembuka","isi":"Assalamu'alaikum Warahmatullahi Wabarakatuh.\n{salam} {sapaan}, semoga selalu sehat dan lancar segala urusannya. 🙏"},{"id":"K-sapa_singkat","jenis":"Kalimat","tingkat":"Umum","kunci":"sapa_singkat","nama":"Salam sapa singkat","isi":"Assalamu'alaikum. {salam}, {sapaan}. Semoga selalu sehat dan lancar segala urusannya."},{"id":"K-perkenalan","jenis":"Kalimat","tingkat":"Umum","kunci":"perkenalan","nama":"Perkenalan petugas","isi":"Perkenalkan, saya {petugas} dari BPJS Ketenagakerjaan {kantor} 👋"},{"id":"K-batas_bayar","jenis":"Kalimat","tingkat":"Umum","kunci":"batas_bayar","nama":"Batas bayar","isi":"Agar tercatat tepat bulan dan perlindungan pekerja tetap berjalan, pembayaran dapat dilakukan paling lambat tanggal {batas}. 🗓️✅"},{"id":"K-cara_bayar","jenis":"Kalimat","tingkat":"Umum","kunci":"cara_bayar","nama":"Cara bayar","isi":"📖 Cara bayar iuran dengan kode iuran di atas: https://bit.ly/bayar-iuran-bpjstk"},{"id":"K-kalimat_sipp","jenis":"Kalimat","tingkat":"Umum","kunci":"kalimat_sipp","nama":"Kalimat SIPP","isi":"💻 Bagi Bapak/Ibu yang sudah memiliki akun SIPP, tagihan iuran juga dapat dibentuk secara mandiri melalui menu *Mutasi Data*. Panduan SIPP: https://bit.ly/kode-iuran-sipp"},{"id":"K-abaikan","jenis":"Kalimat","tingkat":"Umum","kunci":"abaikan","nama":"Abaikan bila sudah bayar","isi":"Jika Bapak/Ibu sudah melakukan pembayaran, mohon abaikan pesan ini."},{"id":"K-kendala","jenis":"Kalimat","tingkat":"Umum","kunci":"kendala","nama":"Tawaran bantuan kendala","isi":"Apabila ada kendala terkait kode iuran (billing), silakan menghubungi saya, insyaAllah kami bantu. 🤝"},{"id":"K-terima_kasih","jenis":"Kalimat","tingkat":"Umum","kunci":"terima_kasih","nama":"Terima kasih","isi":"Terima kasih banyak. 🙏😊"},{"id":"K-penutup","jenis":"Kalimat","tingkat":"Umum","kunci":"penutup","nama":"Penutup + tanda tangan","isi":"Hormat saya,\n{petugas}\nBPJS Ketenagakerjaan {kantor}"},{"id":"K-pembuka_grup","jenis":"Kalimat","tingkat":"Umum","kunci":"pembuka_grup","nama":"Salam pembuka grup","isi":"Assalamu'alaikum Warahmatullahi Wabarakatuh.\n\n{salam} Bapak/Ibu sekalian."},{"id":"K-penutup_grup","jenis":"Kalimat","tingkat":"Umum","kunci":"penutup_grup","nama":"Penutup grup","isi":"Terima kasih atas sinergi dan perhatian Bapak/Ibu semua. 🙏"},{"id":"K-Monitor-batas_bayar","jenis":"Kalimat","tingkat":"Monitor","kunci":"batas_bayar","nama":"Batas bayar (SPPG)","isi":"Mohon pembayaran dapat dilakukan paling lambat tanggal {batas} agar perlindungan pengurus dan relawan tetap aktif. 🗓️✅"},{"id":"K-Monitor-penutup_grup","jenis":"Kalimat","tingkat":"Monitor","kunci":"penutup_grup","nama":"Penutup grup (SPPG)","isi":"Matorsakalangkong atas sinergi dan perhatian Bapak/Ibu semua. 🙏"},{"id":"U-sapa_singkat","jenis":"Templat","tingkat":"Umum","kunci":"sapa_singkat","nama":"Sapa singkat","keperluan":"Lainnya","sasaran":"Pembuka percakapan; lanjutkan mengetik sendiri","isi":"{sapa_singkat}"},{"id":"U-perkenalan","jenis":"Templat","tingkat":"Umum","kunci":"perkenalan","nama":"Perkenalan (pesan pertama)","keperluan":"Lainnya","sasaran":"Kontak baru yang belum pernah dihubungi","isi":"{pembuka}\n\n{perkenalan}, izin menghubungi terkait kepesertaan {nama_subjek}."},{"id":"U-rincian","jenis":"Templat","tingkat":"Umum","kunci":"rincian","nama":"Rincian tagihan","keperluan":"Tagihan","sasaran":"Kontak yang masih punya tagihan (yang lunas dilewati)","isi":"{pembuka}\n\nBerikut kami sampaikan rincian tagihan iuran BPJS Ketenagakerjaan per {tanggal}: 📋\n\n{rincian}\n\n{cara_bayar}\n{kalimat_sipp}\n\n{catatan_rincian}\n\n{abaikan} {kendala} {terima_kasih}\n\n{penutup}"},{"id":"U-pengingat","jenis":"Templat","tingkat":"Umum","kunci":"pengingat","nama":"Pengingat bulan ini","keperluan":"Pengingat","sasaran":"Belum bayar bulan ini (awal bulan / H-3 hari bayar)","isi":"{pembuka}\n\nMelalui pesan ini, kami izin menyampaikan pengingat iuran BPJS Ketenagakerjaan bulan {bulan} untuk:\n\n{daftar}\n\n{batas_bayar}\n\n{cara_bayar}\n{kalimat_sipp}\n\n{abaikan} {kendala} {terima_kasih}\n\n{penutup}"},{"id":"U-terima_kasih","jenis":"Templat","tingkat":"Umum","kunci":"terima_kasih","nama":"Terima kasih tepat bulan","keperluan":"Ucapan","sasaran":"Sudah bayar tepat bulan","isi":"{pembuka}\n\nTerima kasih, iuran BPJS Ketenagakerjaan *{nama_subjek}* bulan {bulan} sudah kami terima tepat bulan. 🌟 Apresiasi setinggi-tingginya atas kedisiplinan Bapak/Ibu dan tim. 👍 Semoga seluruh pekerja selalu sehat dan terlindungi. 🙏\n\n{penutup}"},{"id":"U-ibr","jenis":"Templat","tingkat":"Umum","kunci":"ibr","nama":"Lengkapi rincian (IBR)","keperluan":"Tagihan","sasaran":"Ada iuran belum rinci (IBR)","isi":"{pembuka}\n\nTerima kasih, iuran BPJS Ketenagakerjaan *{nama_subjek}* sudah kami terima. 🙏 Namun sebagian masih tercatat sebagai *iuran belum rinci (IBR)*, sehingga belum terhitung sebagai pembayaran bulan berjalan. 📋\n\nMohon bantuan Bapak/Ibu untuk melengkapi rincian tenaga kerja (daftar & upah) agar iuran terposting tepat bulan. Bila ada kendala, kami siap membantu. 🤝\n\n{terima_kasih}\n\n{penutup}"},{"id":"U-undangan","jenis":"Templat","tingkat":"Umum","kunci":"undangan","nama":"Undangan kegiatan","keperluan":"Undangan","sasaran":"Isi nama acara, hari/tanggal, jam, dan tempat saat mengirim","isi":"{pembuka}\n\nDengan hormat, kami mengundang Bapak/Ibu selaku perwakilan {nama_subjek} untuk hadir dalam kegiatan:\n\n🎯 *{acara}*\n🗓️ {hari_tanggal}\n⏰ {jam}\n📍 {tempat}\n\nKehadiran Bapak/Ibu sangat berarti bagi kami. Mohon konfirmasi kehadiran dengan membalas pesan ini ya. 😊\n\n{penutup}"},{"id":"U-pembaruan_data","jenis":"Templat","tingkat":"Umum","kunci":"pembaruan_data","nama":"Pembaruan data kepesertaan","keperluan":"Pemutakhiran data","sasaran":"Data kontak/TK belum lengkap","isi":"{pembuka}\n\nIzin, kami sedang memperbarui data kepesertaan {nama_subjek}. 📝 Mohon bantuan Bapak/Ibu mengonfirmasi:\n\n1️⃣ Nama dan nomor WA PIC/HRD yang bisa kami hubungi\n2️⃣ Jumlah tenaga kerja saat ini\n3️⃣ Email perusahaan\n\nCukup dibalas di WA ini saja. Terima kasih banyak atas bantuannya. 🙏😊\n\n{penutup}"},{"id":"U-ucapan","jenis":"Templat","tingkat":"Umum","kunci":"ucapan","nama":"Ucapan hari besar","keperluan":"Ucapan","sasaran":"Isi ucapannya saat mengirim","isi":"Assalamu'alaikum Warahmatullahi Wabarakatuh.\n{salam} {sapaan}. 🙏\n\n{ucapan}\n\nTerima kasih atas kerja sama {nama_subjek} bersama BPJS Ketenagakerjaan selama ini. Semoga usaha dan seluruh pekerja selalu sehat, aman, dan sejahtera. 🌟\n\n{penutup}"},{"id":"L-sapu","jenis":"Templat","tingkat":"LENSA","kunci":"sapu","nama":"Sapu akhir bulan","keperluan":"Pengingat","sasaran":"Belum posting, tanggal 21 dst. (Hari ini)","isi":"{pembuka}\n\nIzin mengingatkan kembali ya, sampai hari ini iuran BPJS Ketenagakerjaan bulan {bulan} untuk:\n\n{daftar}\n\nbelum kami terima. ⏳ {batas_bayar}\n\n{cara_bayar}\n{kalimat_sipp}\n\n{abaikan} {kendala} {terima_kasih}\n\n{penutup}"},{"id":"L-telat","jenis":"Templat","tingkat":"LENSA","kunci":"telat","nama":"Telat 1 bulan atau lebih","keperluan":"Tagihan","sasaran":"Telat 1 bulan atau lebih (Hari ini)","isi":"{pembuka}\n\nMelalui pesan ini, kami izin menginformasikan bahwa iuran BPJS Ketenagakerjaan berikut masih belum terbayar:\n\n{daftar}\n\nAgar perlindungan pekerja tetap aktif dan tagihan tidak makin menumpuk, mohon pembayaran dapat segera dilakukan. 💪 Bila ada kendala, silakan kabari saya, kami siap membantu mencarikan jalan keluarnya. 🤝\n\n{cara_bayar}\n{kalimat_sipp}\n\n{abaikan} {terima_kasih}\n\n{penutup}"},{"id":"L-ajakan_program","jenis":"Templat","tingkat":"LENSA","kunci":"ajakan_program","nama":"Ajakan melengkapi program (JHT/JP)","keperluan":"Sosialisasi","sasaran":"Badan usaha 2P/3P","isi":"{pembuka}\n\nTerima kasih atas kepercayaan {nama_subjek} kepada BPJS Ketenagakerjaan. 💙\n\nSaat ini perlindungan pekerja di {nama_subjek} mengikuti program {program}. Kami ingin mengajak Bapak/Ibu melengkapi perlindungan dengan Jaminan Hari Tua (JHT) dan Jaminan Pensiun (JP), agar pekerja punya tabungan hari tua dan penghasilan bulanan saat pensiun. 🌱\n\nBila berkenan, kami siap menjelaskan simulasi iurannya, lewat WA atau kami datang ke tempat. 🤝\n\n{penutup}"},{"id":"M-pendaftaran","jenis":"Templat","tingkat":"Monitor","kunci":"pendaftaran","nama":"Tindak lanjut pendaftaran","keperluan":"Lainnya","sasaran":"SPPG belum terdaftar / menunggu iuran pertama","isi":"{pembuka}\n\nIzin menindaklanjuti kepesertaan BPJS Ketenagakerjaan untuk *{nama_subjek}* ({yayasan}). 📝\n\nMohon kabar perkembangannya ya, Bapak/Ibu. Bila ada kendala data atau pembayaran iuran pertama, kami siap membantu. 🤝\n\n{terima_kasih}\n\n{penutup}"},{"id":"M-grup_harian","jenis":"Templat","tingkat":"Monitor","kunci":"grup_harian","nama":"Laporan grup harian","keperluan":"Laporan grup","sasaran":"Grup WA Kepala SPPG, koordinator yayasan, internal BPJSTK","isi":"{pembuka_grup}\n\nIzin kami sampaikan Update Progres Kepesertaan SPPG per {tanggal_data}\n\n{rekap_pendaftaran}{rekap_iuran}{baru_bayar}{daftar_nama}Mohon bantuan Bapak/Ibu Kepala SPPG dan Perwakilan Yayasan untuk segera melakukan pendaftaran serta pembayaran iuran *paling lambat tanggal {batas_hari}* setiap bulannya demi menghindari denda dan memastikan kelancaran pelayanan jika terjadi risiko.\n\n{penutup_grup}"},{"id":"M-grup_pendaftaran","jenis":"Templat","tingkat":"Monitor","kunci":"grup_pendaftaran","nama":"Laporan pendaftaran (grup)","keperluan":"Laporan grup","sasaran":"Grup WA saat rekap pendaftaran diperbarui","isi":"{pembuka_grup}\n\nIzin kami sampaikan Update Pendaftaran Kepesertaan SPPG per {tanggal_data}\n\n{rekap_pendaftaran}{daftar_setor}{daftar_belum}Mohon bantuan Bapak/Ibu Kepala SPPG dan Perwakilan Yayasan untuk segera menyelesaikan pendaftaran serta pembayaran iuran pertama. Bila ada kendala, kami siap membantu. 🤝\n\n{penutup_grup}"}]);
-var RESEP_APP = {"nama":"Monitor SPPG","kode":"monitor-sppg","tingkat":"Monitor","subjek":"SPPG","alamat":"https://hibahtiar.github.io/monitor-sppg/","warna":{"utama":"#1F3E8C","utama2":"#2D52B0","gelap":"#15295E","aksen":"#C9972B"},"peran":["Pemilik","Pelaksana"],"modul":[{"nama":"pesan-wa","aktif":true,"pengaturan":{"ubahRedaksi":[],"catatanUbah":"Redaksi diubah oleh Pemilik di LENSA PK › Pustaka Redaksi WA; perubahan sampai di sini lewat sambungan LENSA (±5 menit).","batasHari":15,"jedaKontakHari":3,"maksKontakHari":40,"tandaDaftar":"📌","catatan":"Yang berlaku adalah Pengaturan Monitor (batas bayar, jeda kontak)."}}]};
+var RESEP_APP = {"nama":"Monitor SPPG","kode":"monitor-sppg","tingkat":"Monitor","subjek":"SPPG","alamat":"https://hibahtiar.github.io/monitor-sppg/","warna":{"utama":"#1F3E8C","utama2":"#2D52B0","gelap":"#15295E","aksen":"#C9972B"},"peran":["Pemilik","Pelaksana"],"modul":[{"nama":"pesan-wa","aktif":true,"pengaturan":{"ubahRedaksi":[],"catatanUbah":"Redaksi diubah oleh Pemilik di LENSA PK › Pustaka Redaksi WA; perubahan sampai di sini lewat Hub LENSA Suite saat sinkron berikutnya.","batasHari":15,"jedaKontakHari":3,"maksKontakHari":40,"tandaDaftar":"📌","catatan":"Yang berlaku adalah Pengaturan Monitor (batas bayar, jeda kontak)."}}]};
 /* === kit/alat.js === */
 /* ======================================================================
  *  KIT LENSA Suite · alat.js — alat kecil di browser yang dipakai semua aplikasi.
@@ -1960,7 +2004,7 @@ var CSS_PESAN_WA = "*{box-sizing:border-box}\n.modul-wa{font:15px/1.45 system-ui
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '1.8.0';
+var VERSI = '2.0.0';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -2735,7 +2779,7 @@ function dbKosong() {
 }
 
 var DB = dbKosong();
-var SIMPAN = { jenis: 'memori', galat: '', tertunda: null, terakhir: '' };
+var SIMPAN = { jenis: 'memori', galat: '', tertunda: null, terakhir: '', kunci: null, garam: null, rekTerkunci: null, antre: Promise.resolve() }; // 2.0: PIN gadget (KitSandi)
 
 function bukaIdb() {
   return new Promise(function (ok, gagal) {
@@ -2766,6 +2810,8 @@ async function muatDb() {
       SIMPAN.jenis = 'ls';
     } catch (e2) { SIMPAN.jenis = 'memori'; SIMPAN.galat = e2.message; }
   }
+  // 2.0: data terkunci PIN → layar PIN (mulai) membuka dengan bukaDenganPin; sampai itu data tidak ditimpa
+  if (data && data.terkunci) { SIMPAN.rekTerkunci = data; DB = lengkapiDb(dbKosong()); return DB; }
   DB = lengkapiDb(data || dbKosong());
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e3) { /* opsional */ }
   return DB;
@@ -2793,20 +2839,47 @@ function simpanDb(segera) {
   SIMPAN.tertunda = setTimeout(tulisDb, 250);
 }
 
+/* ---------------- 2.0: PIN gadget (kit/sandi.js, rumus sama dengan LENSA PK) ---------------- */
+function pinAktif() { return !!SIMPAN.kunci; }
+/** PIN salah → false. */
+async function bukaDenganPin(pin) {
+  var rek = SIMPAN.rekTerkunci;
+  if (!rek) return true;
+  var garam = KitSandi.dariB64(rek.garam), k = await KitSandi.kunciDariPin(pin, garam), d;
+  try { d = await KitSandi.bukaSandi(rek, k); } catch (e) { return false; }
+  SIMPAN.kunci = k; SIMPAN.garam = garam; SIMPAN.rekTerkunci = null;
+  DB = lengkapiDb(d);
+  return true;
+}
+async function pasangPin(pin) {
+  if (!KitSandi.pinSah(pin)) throw new Error('PIN 4–12 angka.');
+  SIMPAN.garam = KitSandi.garamBaru();
+  SIMPAN.kunci = await KitSandi.kunciDariPin(pin, SIMPAN.garam);
+  return simpanDb(true);
+}
+function lepasPin() { SIMPAN.kunci = null; SIMPAN.garam = null; return simpanDb(true); }
+
+/** Tulis berurutan (penyandian butuh waktu): tulisan yang lebih baru tidak pernah didahului yang lama. */
 function tulisDb() {
   SIMPAN.tertunda = null;
+  SIMPAN.antre = SIMPAN.antre.then(tulisDbSekarang).catch(function (e) { SIMPAN.galat = 'Gagal menyimpan: ' + e.message; return false; });
+  return SIMPAN.antre;
+}
+async function tulisDbSekarang() {
+  if (SIMPAN.rekTerkunci) return false; // belum dibuka dengan PIN: data terkunci tidak ditimpa
+  var isi = SIMPAN.kunci ? await KitSandi.sandikan(DB, SIMPAN.kunci, SIMPAN.garam) : DB;
   return new Promise(function (ok) {
     if (SIMPAN.jenis === 'idb' && _idb) {
       try {
         var tx = _idb.transaction('kv', 'readwrite');
-        tx.objectStore('kv').put(DB, KUNCI);
+        tx.objectStore('kv').put(isi, KUNCI);
         tx.oncomplete = function () { SIMPAN.terakhir = jamSekarang(); SIMPAN.galat = ''; ok(true); };
         tx.onerror = function () { SIMPAN.galat = String(tx.error && tx.error.message || 'gagal menyimpan'); ok(false); };
         return;
       } catch (e) { SIMPAN.galat = e.message; }
     }
     try {
-      localStorage.setItem(NAMA_DB, JSON.stringify(DB));
+      localStorage.setItem(NAMA_DB, JSON.stringify(SIMPAN.kunci ? KitSandi.keTeks(isi) : DB));
       SIMPAN.jenis = 'ls'; SIMPAN.terakhir = jamSekarang(); SIMPAN.galat = '';
       ok(true);
     } catch (e2) { SIMPAN.galat = e2.message; ok(false); }
@@ -2913,18 +2986,25 @@ function tandaiLaporan(jenis, model) {
   simpanDb();
 }
 
-function unduhCadangan() {
+async function unduhCadangan() {
   DB.cadanganTerakhir = hariIni();
   simpanDb(true);
   var salinan = salinObj(DB);
   salinan.sinkron = { url: '', kunci: '', seq: 0, antre: {}, terakhir: '', galat: '', status: '' }; // kunci sinkron tidak ikut cadangan
   salinan.keLensa = {};
-  var blob = new Blob([JSON.stringify(salinan)], { type: 'application/json' });
+  var isi = salinan;
+  if (SIMPAN.kunci) isi = Object.assign({ jenis: 'Monitor SPPG cadangan terkunci', versi: VERSI }, KitSandi.keTeks(await KitSandi.sandikan(salinan, SIMPAN.kunci, SIMPAN.garam))); // 2.0: ikut terkunci PIN yang sama
+  var blob = new Blob([JSON.stringify(isi)], { type: 'application/json' });
   unduhBlob(blob, 'Monitor_SPPG_cadangan_' + hariIni() + '.json');
 }
 
-async function pulihkanCadangan(file) {
+async function pulihkanCadangan(file, mintaPin) {
   var d = JSON.parse(await file.text());
+  if (d && d.jenis === 'Monitor SPPG cadangan terkunci') {
+    var pin = mintaPin ? await mintaPin() : '';
+    if (!pin) throw new Error('Cadangan ini terkunci PIN. Dibatalkan.');
+    try { d = await KitSandi.bukaSandi(d, await KitSandi.kunciDariPin(pin, KitSandi.dariB64(d.garam))); } catch (e) { throw new Error('PIN cadangan salah.'); }
+  }
   if (!d || !d.pengaturan || !Array.isArray(d.snap)) throw new Error('File ini bukan cadangan Monitor SPPG.');
   var sinkLama = DB.sinkron;
   DB = lengkapiDb(d);
@@ -2932,7 +3012,7 @@ async function pulihkanCadangan(file) {
   await simpanDb(true);
 }
 
-function hapusSemua() { DB = dbKosong(); return simpanDb(true); }
+function hapusSemua() { DB = dbKosong(); SIMPAN.kunci = null; SIMPAN.garam = null; SIMPAN.rekTerkunci = null; return simpanDb(true); }
 
 /** Pengaturan diubah: catat waktunya agar ikut tersinkron. */
 function pengaturanBerubah() { DB.pengaturan._u = Date.now(); tandaiUbah('lain', 'pengaturan'); simpanDb(); }
@@ -3051,13 +3131,22 @@ async function panggilServer(isi, url, kred) {
     r = await fetch(url || s.url, {
       method: 'POST', redirect: 'follow', cache: 'no-store',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ versi: VERSI, versiApp: VERSI, perangkat: labelPerangkat(), antre: jumlahAntre() }, kred, isi))
+      body: JSON.stringify(Object.assign({ app: 'monitor', versi: VERSI, versiApp: VERSI, perangkat: labelPerangkat(), antre: jumlahAntre() }, kred, isi))
     });
   } catch (e) { throw new Error('Tidak terhubung ke internet / server.'); }
   if (!r.ok) throw new Error('Server sinkron menjawab ' + r.status);
   var teks = await r.text(), j;
   try { j = JSON.parse(teks); } catch (e) { throw new Error(/<html/i.test(teks) ? 'Alamat sinkron salah atau web app belum diterapkan untuk "Siapa saja".' : 'Jawaban server tidak terbaca.'); }
+  // 2.0 (LENSA Suite 3A): server Monitor 1.5 menjawab "pindah" → alamat Hub dipakai seterusnya, permintaan diulang di sana
+  if (!j.ok && j.pindah && cekAlamatSinkron(j.pindah) && j.pindah !== (url || s.url) && !isi._pindah) {
+    if (!url || url === s.url) { s.url = j.pindah; s.diHub = true; await simpanDb(true); }
+    var j2 = await panggilServer(Object.assign({}, isi, { _pindah: true }), j.pindah, kred);
+    j2._alamat = j.pindah;
+    return j2;
+  }
   if (!j.ok) { var er = new Error(j.galat || 'Sinkron gagal'); if (j.cabut) er.cabut = true; throw er; }
+  if (j.hub === true && (!url || url === s.url) && !s.diHub) s.diHub = true; // menjawab langsung sebagai Hub
+  if (j.info) { DB.lensa = DB.lensa || {}; DB.lensa.info = j.info; }
   return j;
 }
 /** Gadget lama (KUNCI bersama) → terdaftar dengan token sendiri. Server lama (1.2) → tetap KUNCI. */
@@ -3181,7 +3270,7 @@ async function gabungDenganKode(teks) {
   var s = DB.sinkron;
   if (!s.idKlien) { s.idKlien = idKlienBaru(); await simpanDb(true); }
   var j = await panggilServer({ aksi: 'gabung', kode: o.kode, idKlien: s.idKlien }, o.url, {});
-  s.url = o.url; s.idp = j.idp; s.token = j.token; s.akses = j.akses || null; s.kunci = ''; s.seq = 0; s.galat = ''; s.terakhirOk = Date.now();
+  s.url = j._alamat || o.url; s.diHub = !!(j._alamat || j.hub) || s.diHub; s.idp = j.idp; s.token = j.token; s.akses = j.akses || null; s.kunci = ''; s.seq = 0; s.galat = ''; s.terakhirOk = Date.now();
   if (!hakLihat()) antreSemua();
   await simpanDb(true);
   return sinkronkanWajib();
@@ -3320,9 +3409,15 @@ function gerbangTombol(teks, utama, attr) {
 }
 function gerbangHtml(mode, pesan) {
   var esc = function (t) { return String(t || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
-  var judul = { gabung: 'Masuk ke Monitor SPPG', dicabut: 'Akses dicabut', terkunci: 'Perangkat terkunci' }[mode];
+  var judul = { gabung: 'Masuk ke Monitor SPPG', dicabut: 'Akses dicabut', terkunci: 'Perangkat terkunci', pin: 'Masukkan PIN' }[mode];
   var n = jumlahAntre(), isi = '';
-  if (mode === 'terkunci') {
+  if (mode === 'pin') { // 2.0: data gadget terkunci PIN
+    isi = '<p style="margin:6px 0 12px;font-size:14px;color:#5B6470">Data Monitor SPPG di gadget ini terkunci PIN.</p>' +
+      '<input data-f="pin" type="password" inputmode="numeric" autocomplete="current-password" aria-label="PIN" style="width:100%;box-sizing:border-box;font-size:20px;letter-spacing:6px;text-align:center;padding:12px;border:1.5px solid #C9CFDA;border-radius:10px">' +
+      '<div data-galat style="min-height:20px;margin-top:6px;font-size:13px;color:#BD3B33"></div>' + gerbangTombol('Buka', true, 'data-g="pin"') +
+      '<details style="margin-top:14px;font-size:13px;color:#5B6470"><summary style="cursor:pointer">Lupa PIN?</summary><p style="margin:8px 0">Data di gadget ini harus dihapus, lalu masuk lagi dengan kode undangan baru. Data di Google Sheet tetap aman; perubahan yang belum terkirim ikut hilang.</p>' +
+      gerbangTombol('Hapus data gadget ini', false, 'data-g="lupa"') + '</details>';
+  } else if (mode === 'terkunci') {
     var s = DB.sinkron || {};
     isi = '<p style="margin:6px 0 4px;font-size:14px;color:#5B6470">Gadget ini sudah lebih dari ' + HARI_KUNCI_SINKRON + ' hari tidak sinkron dengan Google Sheet Monitor SPPG' +
       (s.terakhir ? ' (terakhir ' + esc(s.terakhir) + ')' : '') + '. Sambungkan internet, lalu tekan Sinkron sekarang. Data di gadget tetap ada.</p>' +
@@ -3362,7 +3457,7 @@ function tampilkanGerbang(mode, pesan) {
       var gal = lap.querySelector('[data-galat]'), nilai = function (k) { var x = lap.querySelector('[data-f="' + k + '"]'); return x ? x.value.trim() : ''; };
       var kerja = async function (tombol, f, sukses) {
         var semua = lap.querySelectorAll('button'); Array.prototype.forEach.call(semua, function (b) { b.disabled = true; });
-        gal.style.color = '#5B6470'; gal.textContent = 'Menghubungi server… (menarik data bisa 10–60 detik)';
+        gal.style.color = '#5B6470'; gal.textContent = GERBANG.mode === 'pin' ? 'Membuka…' : 'Menghubungi server… (menarik data bisa 10–60 detik)';
         try { await f(); gal.textContent = ''; lap.remove(); GERBANG.el = null; selesai(sukses || true); }
         catch (e) {
           Array.prototype.forEach.call(semua, function (b) { b.disabled = false; });
@@ -3376,8 +3471,17 @@ function tampilkanGerbang(mode, pesan) {
         if (o) { url = o.url; k = o.kunci; }
         kerja(b, function () { return sambungSinkron(url, k); });
       };
+      if ((b = lap.querySelector('[data-g="pin"]'))) {
+        var bPin = b, iPin = lap.querySelector('[data-f="pin"]');
+        bPin.onclick = function () { kerja(bPin, async function () { if (!(await bukaDenganPin(nilai('pin')))) { iPin.value = ''; throw new Error('PIN salah.'); } }); };
+        iPin.onkeydown = function (ev) { if (ev.key === 'Enter') bPin.click(); };
+      }
+      if ((b = lap.querySelector('[data-g="lupa"]'))) b.onclick = async function () {
+        if (!confirm('Hapus semua data Monitor SPPG di gadget ini? Setelah itu masuk lagi dengan kode undangan.')) return;
+        await hapusSemua(); location.reload();
+      };
       if ((b = lap.querySelector('[data-g="sinkron"]'))) b.onclick = function () { kerja(b, function () { return sinkronkanWajib(); }); };
-      var t = lap.querySelector('textarea'); if (t) setTimeout(function () { t.focus(); }, 50);
+      var t = lap.querySelector('textarea') || lap.querySelector('[data-f="pin"]'); if (t) setTimeout(function () { t.focus(); }, 50);
     };
     if (document.body) pasang(); else document.addEventListener('DOMContentLoaded', pasang);
   });
@@ -5314,7 +5418,7 @@ LAYAR.data = function () {
     DB.snap.length + ' laporan · ' + DB.log.length + ' catatan kontak · ' + Object.keys(DB.unit).length + ' ubahan SPPG</div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn utama" data-a="cadangan">' + ikon('unduh') + 'Unduh cadangan</button><button class="btn" data-a="pulihkan">' + ikon('unggah') + 'Pulihkan dari cadangan</button>' +
     '<button class="btn" data-a="eksporLog">' + ikon('unduh') + 'Unduh catatan kontak (Excel)</button><button class="btn bahaya" data-a="hapusSemua">' + ikon('hapus') + 'Hapus semua data</button></div>' +
-    '<div style="font-size:13px;color:var(--pudar)">Pindah komputer atau browser: unduh cadangan di sini, lalu Pulihkan di komputer baru.</div></div></div>';
+    '<div style="font-size:13px;color:var(--pudar)">Pindah komputer atau browser: unduh cadangan di sini, lalu Pulihkan di komputer baru.</div>' + blokPin() + '</div></div>';
 
   h += kartuSinkron();
   h += '<div class="kartu opsi"><div class="kartu-kepala"><h2>Redaksi pesan WA (Pustaka Redaksi)</h2></div>' +
@@ -5338,7 +5442,24 @@ function blokHub() {
       '. PIC SPPG dan catatan WA dipakai bersama LENSA PK (satu orang satu kontak); bila berbeda, yang terakhir diubah yang dipakai.' : '') +
     ((DB.galatAntre || []).length ? '<br>' + DB.galatAntre.length + ' catatan galat gadget ini menunggu dikirim ke Pusat Kendali LENSA PK.' : '');
 }
+/** 2.0: PIN gadget ini (pilihan). Rumus sama dengan PIN LENSA PK; PIN tidak disimpan di mana pun. */
+function blokPin() {
+  var aktif = pinAktif();
+  return '<div class="blok-pin" style="border-top:1px solid var(--garis);margin-top:10px;padding-top:10px"><b>PIN gadget ini</b> ' +
+    (aktif ? '<span class="lencana-st st-tepat">aktif</span>' : '<span class="lencana-st st-abu">tidak dipakai</span>') +
+    '<div style="font-size:13px;color:var(--pudar);margin:4px 0 8px">' + (aktif ? 'Data di gadget ini terkunci; PIN diminta setiap Monitor SPPG dibuka. Cadangan yang diunduh ikut terkunci PIN yang sama.' :
+      'Pilihan: kunci data di gadget ini dengan PIN 4–12 angka. Lupa PIN = data di gadget ini dihapus lalu masuk lagi dengan kode undangan (data di Google Sheet tetap aman).') + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><label class="field" style="margin:0">' + (aktif ? 'PIN baru' : 'PIN') + '<input class="inp" type="password" inputmode="numeric" autocomplete="new-password" data-f="pinBaru" style="width:130px"></label>' +
+    '<label class="field" style="margin:0">Ulangi<input class="inp" type="password" inputmode="numeric" autocomplete="new-password" data-f="pinUlang" style="width:130px"></label>' +
+    '<button class="btn" data-a="pasangPin">' + (aktif ? 'Ganti PIN' : 'Pasang PIN') + '</button>' + (aktif ? '<button class="btn bahaya" data-a="lepasPin">Lepas PIN</button>' : '') + '</div></div>';
+}
 function blokLensa() {
+  if (DB.sinkron.diHub) { // 2.0: dilayani Hub LENSA Suite (satu alamat dengan LENSA PK); jembatan lama tidak dipakai
+    var inf = (DB.lensa || {}).info || {};
+    return '<div class="lensa-blok"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>Hub LENSA Suite</b><span class="lencana-st st-tepat">tersambung</span></div>' +
+      '<div style="font-size:13px;color:var(--pudar);line-height:1.6">Monitor SPPG sinkron lewat Hub LENSA Suite (alamat yang sama dengan LENSA PK)' + (inf.kode ? ' · kode pembina LENSA <b style="color:var(--teks)">' + esc(inf.kode) + '</b>' : '') +
+      '. Akses gadget dikelola dari LENSA PK › Perangkat &amp; pengguna.' + (hubAktif() ? blokHub() : '') + '</div></div>';
+  }
   var L = DB.sinkron.lensa || {}, info = (DB.lensa || {}).info;
   var h = '<div class="lensa-blok"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>Sambungan LENSA PK</b>' +
     (L.aktif ? '<span class="lencana-st ' + (L.galat ? 'st-m5' : 'st-tepat') + '">' + (L.galat ? 'bermasalah' : 'tersambung') + '</span>' : '<span class="lencana-st st-abu">belum tersambung</span>') + '</div>';
@@ -5651,6 +5772,19 @@ var AKSI = {
   perbesar: function (v, el) { bukaDialog('<img class="penuh" alt="" src="' + el.getAttribute('src') + '"><div class="aksi"><button class="btn utama" data-a="tutupDialog">Tutup</button></div>', true); },
 
   hapusSnap: function (v) { if (confirm('Hapus laporan ini dari penyimpanan?')) { hapusSnap(v); UI.laporan.teks = null; muatUlang(true); } },
+  /* 2.0: PIN gadget ini (pilihan) */
+  pasangPin: async function () {
+    var a = $('[data-f="pinBaru"]'), b = $('[data-f="pinUlang"]'), p1 = a ? a.value.trim() : '', p2 = b ? b.value.trim() : '';
+    if (!KitSandi.pinSah(p1)) return toast('PIN 4–12 angka.');
+    if (p1 !== p2) return toast('Ulangi PIN tidak sama.');
+    var ganti = pinAktif();
+    try { await pasangPin(p1); toast(ganti ? 'PIN diganti.' : 'PIN dipasang. Mulai sekarang Monitor SPPG di gadget ini meminta PIN saat dibuka.', 5000); render(false); }
+    catch (x) { toast(x.message, 6000); }
+  },
+  lepasPin: async function () {
+    if (!confirm('Lepas PIN? Data Monitor SPPG di gadget ini tersimpan tanpa kunci.')) return;
+    await lepasPin(); toast('PIN dilepas.'); render(false);
+  },
   hapusSemua: async function () {
     if (!confirm('Hapus SEMUA data Monitor SPPG di browser ini (laporan, catatan kontak, pengaturan)? Unduh cadangan dulu bila perlu.')) return;
     if (!confirm('Yakin? Tindakan ini tidak bisa dibatalkan.')) return;
@@ -5781,7 +5915,7 @@ function pasangPeristiwa() {
     var f = e.target.files[0]; e.target.value = '';
     if (!f) return;
     if (!confirm('Pulihkan dari cadangan "' + f.name + '"? Data yang ada sekarang di browser ini akan diganti.')) return;
-    try { await pulihkanCadangan(f); M = hitung(); toast('Data dipulihkan.'); render(false); } catch (x) { toast(x.message, 6000); }
+    try { await pulihkanCadangan(f, function () { return Promise.resolve(prompt('Cadangan ini terkunci PIN. Masukkan PIN-nya:') || ''); }); M = hitung(); toast('Data dipulihkan.'); render(false); } catch (x) { toast(x.message, 6000); }
   });
 
   $('#laciLatar').addEventListener('click', tutupLaci);
@@ -6175,6 +6309,7 @@ function tutupRapat() {
 async function mulai() {
   pasangPeristiwa();
   try { await muatDb(); } catch (e) { SIMPAN.galat = e.message; }
+  if (SIMPAN.rekTerkunci) await tampilkanGerbang('pin'); // 2.0: data gadget terkunci PIN
   // 1.4: data hanya dipakai di gadget terdaftar (kode undangan) yang sinkron dalam 7 hari terakhir
   AKSES_DICABUT.saatDicabut = function () { location.reload(); };
   await periksaGerbang();
@@ -6183,7 +6318,7 @@ async function mulai() {
   mulaiSinkronOtomatis();
   daftarkanPwa();
   // untuk pengujian otomatis
-  window.MonitorSPPG = { DB: function () { return DB; }, M: function () { return M; }, UI: UI, hitung: hitung, UJI: UJI, muatUlang: muatUlang, tulisDb: tulisDb, sinkronkan: sinkronkan, simpan: function () { return simpanDb(true); } };
+  window.MonitorSPPG = { DB: function () { return DB; }, SIMPAN: SIMPAN, pasangPin: pasangPin, lepasPin: lepasPin, M: function () { return M; }, UI: UI, hitung: hitung, UJI: UJI, muatUlang: muatUlang, tulisDb: tulisDb, sinkronkan: sinkronkan, simpan: function () { return simpanDb(true); } };
 }
 
 /** Setelah sinkron membawa data baru: hitung ulang; jangan ganggu bila sedang mengetik. */
