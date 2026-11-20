@@ -1960,7 +1960,7 @@ var CSS_PESAN_WA = "*{box-sizing:border-box}\n.modul-wa{font:15px/1.45 system-ui
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '1.7.0';
+var VERSI = '1.8.0';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -2726,6 +2726,7 @@ function dbKosong() {
     hubPemetaan: [],   // 1.6: judul kolom tambahan dari tab PEMETAAN LENSA (lewat Hub)
     hubInfo: {},
     hubKontakAntre: [], hubLogAntre: [], hubKontakSeq: 0, hubKontakAwal: false, hubLogAwal: false, // 1.7: Buku Kontak (gadget ini saja)
+    galatAntre: [],    // 1.8: galat gadget ini menunggu dikirim ke Pusat Kendali LENSA (lewat Hub)
     nppLensa: {},      // NPP binaan kode LENSA (dari laporan ITW/ITB) untuk menyaring laporan tanpa kode pembina
     nppLensaU: 0,
     lensaSejak: '',    // penanda sambungan LENSA yang sudah dikirimi PIC awal
@@ -2962,6 +2963,8 @@ var PEMISAH = '\u0001';
 function sinkAktif() { var s = DB.sinkron; return !!(s && s.url && (s.token || s.kunci)); }
 function terdaftar() { var s = DB.sinkron; return !!(s && s.url && s.token); }
 function infoAkses() { return (DB.sinkron && DB.sinkron.akses) || null; }
+/** 1.8 (LENSA Suite 2C): 4 peran standar; peran lama "Pengguna" = Pelaksana. */
+function peranTampil(x) { return x === 'Pemilik' || x === 'Mitra' || x === 'Pengamat' ? x : 'Pelaksana'; }
 function hakLihat() { var a = infoAkses(); return !!(terdaftar() && a && a.hak === 'Lihat'); }
 function jumlahAntre() { return DB.sinkron ? Object.keys(DB.sinkron.antre || {}).length : 0; }
 function idKlienBaru() { return 'K' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
@@ -3477,7 +3480,35 @@ async function sinkronHub() {
     DB.hubInfo = { terakhir: DB.hubInfo.terakhir || '', galat: e.message, buku: !!DB.hubInfo.buku };
     simpanDb();
   }
+  try { await kirimGalatHub(url); } catch (e) { if (e.cabut) throw e; } // 1.8: Hub < 1.2 belum menerima galat → tetap di antrean
   return berubah;
+}
+
+/* ---------------- 1.8 (LENSA Suite 2C): galat gadget ini → tab GALAT LENSA (Pusat Kendali) ---------------- */
+var GALAT_ABAI = /Tidak terhubung|Failed to fetch|NetworkError|Load failed|ResizeObserver|Script error\.?$|menjawab \d{3}|dibatalkan/i;
+function catatGalatMonitor(fungsi, er) {
+  try {
+    if (er && er.cabut) return;
+    var pesan = String((er && (er.stack ? String(er.message || '') + ' @ ' + String(er.stack).split('\n').slice(1, 3).join(' ').replace(/\s+/g, ' ').trim() : er.message)) || er || '').slice(0, 400);
+    if (!pesan || GALAT_ABAI.test(pesan)) return;
+    var a = DB.galatAntre = DB.galatAntre || [];
+    var ada = a.filter(function (g) { return g.fungsi === fungsi && g.pesan === pesan; })[0];
+    if (ada) { ada.kali = (ada.kali || 1) + 1; ada.waktu = waktuSekarang(); }
+    else { a.push({ waktu: waktuSekarang(), fungsi: String(fungsi || 'aplikasi').slice(0, 60), pesan: pesan, versi: VERSI, kali: 1 }); if (a.length > 20) a.splice(0, a.length - 20); }
+    simpanDb();
+  } catch (e) { /* pencatat galat tidak boleh menimbulkan galat */ }
+}
+try {
+  window.addEventListener('error', function (ev) { catatGalatMonitor(ev.filename ? String(ev.filename).split('/').pop() + ':' + (ev.lineno || 0) : 'halaman', ev.error || ev.message); });
+  window.addEventListener('unhandledrejection', function (ev) { catatGalatMonitor('proses latar', ev.reason); });
+} catch (e) { /* bukan peramban */ }
+async function kirimGalatHub(url) {
+  var kirim = (DB.galatAntre || []).slice(0, 20);
+  if (!kirim.length) return 0;
+  await panggilServer({ aksi: 'hub', app: 'monitor', perintah: 'galat', galat: kirim }, url);
+  DB.galatAntre = (DB.galatAntre || []).filter(function (g) { return kirim.indexOf(g) < 0; });
+  simpanDb();
+  return kirim.length;
 }
 
 /* ---------------- Buku Kontak (1.7 · LENSA Suite 2B) ---------------- */
@@ -4821,7 +4852,7 @@ function renderNav() {
     b.push('<button class="sinkron-status" data-a="sinkronSekarang" title="Sinkron sekarang"><span class="titik' + (sk.galat || sk.status === 'offline' ? ' kuning' : '') + '"></span><span class="panjang">' + esc(st) + '</span></button>');
   }
   var ak = infoAkses();
-  if (terdaftar() && ak) b.push('<div class="panjang">Masuk sebagai ' + esc(ak.pengguna) + (ak.hak === 'Lihat' ? ' · <b>hanya lihat</b>' : '') + '</div>');
+  if (terdaftar() && ak) b.push('<div class="panjang">Masuk sebagai ' + esc(ak.pengguna) + ' · ' + esc(peranTampil(ak.peran)) + (ak.hak === 'Lihat' ? ' · <b>hanya lihat</b>' : '') + '</div>');
   b.push('<div class="panjang">Versi ' + VERSI + (sinkAktif() ? '' : ' · belum terdaftar') + '</div>');
   $('#sisiBawah').innerHTML = b.join('');
 }
@@ -5304,7 +5335,8 @@ function blokHub() {
     '<br>Laporan ITW/ITB, Monitoring, dan Data BU cukup diunggah sekali, dari Monitor atau LENSA PK: disimpan sekali di gudang, baris binaan ' + esc(kodeLensa()) +
     ' langsung diolah LENSA PK, dan baris SPPG dari LENSA PK masuk ke sini.' +
     (hubBuku() ? '<br><b style="color:var(--teks)">Buku Kontak</b>: tersambung' + ((DB.hubKontakAntre || []).length + (DB.hubLogAntre || []).length ? ' · ' + ((DB.hubKontakAntre || []).length + (DB.hubLogAntre || []).length) + ' perubahan menunggu dikirim' : '') +
-      '. PIC SPPG dan catatan WA dipakai bersama LENSA PK (satu orang satu kontak); bila berbeda, yang terakhir diubah yang dipakai.' : '');
+      '. PIC SPPG dan catatan WA dipakai bersama LENSA PK (satu orang satu kontak); bila berbeda, yang terakhir diubah yang dipakai.' : '') +
+    ((DB.galatAntre || []).length ? '<br>' + DB.galatAntre.length + ' catatan galat gadget ini menunggu dikirim ke Pusat Kendali LENSA PK.' : '');
 }
 function blokLensa() {
   var L = DB.sinkron.lensa || {}, info = (DB.lensa || {}).info;
@@ -5334,7 +5366,7 @@ function kartuSinkron() {
   if (sinkAktif()) {
     var ak = infoAkses();
     h += '<div style="font-size:14px;color:var(--pudar)">Sinkron terakhir: <b style="color:var(--teks)">' + esc(sk.terakhir || 'belum') + '</b> · menunggu dikirim: <b style="color:var(--teks)">' + antre + '</b>' +
-      (ak && terdaftar() ? '<br>Masuk sebagai <b style="color:var(--teks)">' + esc(ak.pengguna) + '</b> · ' + (ak.hak === 'Lihat' ? '<b style="color:#2B4FA8">hanya lihat</b>' : 'boleh mengubah') + (ak.berlakuSampai ? ' · akses s.d. ' + esc(tglSedang(ak.berlakuSampai)) : '') +
+      (ak && terdaftar() ? '<br>Masuk sebagai <b style="color:var(--teks)">' + esc(ak.pengguna) + '</b> · ' + esc(peranTampil(ak.peran)) + ' · ' + (ak.hak === 'Lihat' ? '<b style="color:#2B4FA8">hanya lihat</b>' : 'boleh mengubah') + (ak.berlakuSampai ? ' · akses s.d. ' + esc(tglSedang(ak.berlakuSampai)) : '') +
         '<br>Gadget ini: <b style="color:var(--teks)">' + esc(labelPerangkat()) + ' · ' + esc(ak.idp) + '</b>' : '') +
       (!terdaftar() ? '<br><span style="color:#8A5A00">Gadget ini masih memakai KUNCI lama' + (sk.serverLama ? ' karena skrip Google Sheet belum versi 1.3 (minta admin memasang Monitor_SPPG_Sinkron.gs terbaru).' : '; akan terdaftar otomatis saat sinkron berikutnya.') + '</span>' : '') +
       (sk.galat ? '<br><span style="color:#9E2A22">Galat: ' + esc(sk.galat) + '</span>' : '') + '<br>Data otomatis disinkron setiap ada perubahan, saat sinyal kembali, dan tiap 2 menit. Gadget yang ' + HARI_KUNCI_SINKRON + ' hari tidak sinkron terkunci sampai sinkron berhasil.</div>' +
