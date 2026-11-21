@@ -330,6 +330,10 @@ svg.grafik .lbl{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:
 .btn-sinkron svg{width:16px;height:16px}
 .btn-sinkron small{flex-basis:100%;font-weight:400;font-size:11px;opacity:.8;margin-left:24px;margin-top:-4px}
 .btn-sinkron:hover{background:rgba(255,255,255,.2)}.btn-sinkron:disabled{opacity:.6;cursor:default}
+/* 2.0.2: tombol Kunci di menu */
+.nav .nav-kunci{margin-top:8px;border-top:1px solid rgba(255,255,255,.18);border-radius:0 0 10px 10px}
+@media (max-width:760px){.nav .nav-kunci{margin-top:0;border-top:0;border-left:1px solid rgba(255,255,255,.18);border-radius:0;position:sticky;right:-8px;background:var(--biru);z-index:1;box-shadow:-10px 0 10px -6px rgba(0,0,0,.35)}}
+
 
 </style>
 </head>
@@ -1635,6 +1639,63 @@ var KitSandi = (function () {
   function keTeks(rek) { return Object.assign({}, rek, { isi: keB64(rek.isi) }); }
   return { ULANG: ULANG, pinSah: pinSah, garamBaru: garamBaru, kunciDariPin: kunciDariPin, sandikan: sandikan, bukaSandi: bukaSandi, keTeks: keTeks, keB64: keB64, dariB64: dariB64 };
 })();
+/**
+ * kit/kunci.js — LENSA Suite (21 Nov 2026): jendela "Hapus akses" yang sama di LENSA PK, Monitor SPPG, dan MyTagihan Desa.
+ * Berdiri sendiri (gaya inline), tidak bergantung pada gaya aplikasi.
+ *   Kunci       = data & akses tetap; aplikasi dibuka lagi dengan PIN.
+ *   Hapus akses = (perubahan dikirim dulu) → perangkat dicabut di server → data di perangkat dihapus → perlu kode undangan baru.
+ * Pemakaian:
+ *   KitKunci.tanyaHapusAkses({ aplikasi: 'LENSA PK', perangkat: 'perangkat', kirimDulu: true, dari: 'LENSA PK',
+ *     kunci: function () { … },            // pilihan: tombol "Kunci saja"
+ *     hapus: async function () { … } })    // dijalankan setelah "Ya, hapus akses"; galat tampil di jendela
+ *   → Promise 'batal' | 'kunci' | 'hapus'
+ */
+var KitKunci = (function () {
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var GEMBOK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+  var tombol = 'display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:14px;font-weight:600;border-radius:10px;padding:9px 14px;cursor:pointer;';
+
+  function tanyaHapusAkses(o) {
+    o = o || {};
+    var perangkat = o.perangkat || 'perangkat', aplikasi = o.aplikasi || 'aplikasi ini';
+    return new Promise(function (selesai) {
+      var lat = document.createElement('div');
+      lat.setAttribute('data-kit-kunci', '');
+      lat.style.cssText = 'position:fixed;inset:0;background:rgba(16,24,40,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit';
+      lat.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="kitKunciJudul" style="background:#fff;color:#1B2430;border-radius:16px;box-shadow:0 20px 50px rgba(16,24,40,.3);width:min(460px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:20px 20px 16px;font-size:14.5px;line-height:1.5">' +
+        '<h2 id="kitKunciJudul" style="margin:0 0 8px;font-size:18px">Hapus akses dari ' + esc(perangkat) + ' ini?</h2>' +
+        '<p style="margin:0 0 6px">Ini <b>bukan</b> sekadar keluar atau menutup aplikasi. Setelah akses dihapus:</p>' +
+        '<ul style="margin:0 0 12px;padding-left:20px">' + (o.kirimDulu ? '<li>perubahan yang belum terkirim dikirim dulu ke spreadsheet,</li>' : '') +
+        '<li>data ' + esc(aplikasi) + ' di ' + esc(perangkat) + ' ini ikut dihapus,</li><li>kode undangan yang dipakai tidak berlaku lagi,</li>' +
+        '<li>untuk masuk lagi perlu <b>kode undangan baru</b>' + (o.dari ? ' dari ' + esc(o.dari) : '') + '.</li></ul>' +
+        (o.kunci ? '<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:10px 12px;margin-bottom:12px">Hanya ingin mengamankan aplikasi? Tekan <b>Kunci</b>: data & akses tetap, dibuka lagi dengan PIN.</div>' : '') +
+        '<div data-galat style="display:none;color:#B42318;margin-bottom:10px"></div>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">' +
+        '<button type="button" data-k="batal" style="' + tombol + 'background:#fff;border:1px solid #C9CFDA;color:#1B2430">Batal</button>' +
+        (o.kunci ? '<button type="button" data-k="kunci" style="' + tombol + 'background:#fff;border:1px solid #C9CFDA;color:#1B2430">' + GEMBOK + 'Kunci saja</button>' : '') +
+        '<button type="button" data-k="hapus" style="' + tombol + 'background:#B42318;border:1px solid #B42318;color:#fff">Ya, hapus akses</button></div></div>';
+      var tutup = function (hasil) { document.removeEventListener('keydown', esc_); lat.remove(); selesai(hasil); };
+      var esc_ = function (e) { if (e.key === 'Escape') tutup('batal'); };
+      document.addEventListener('keydown', esc_);
+      lat.addEventListener('click', function (e) { if (e.target === lat) tutup('batal'); });
+      lat.querySelector('[data-k="batal"]').onclick = function () { tutup('batal'); };
+      if (o.kunci) lat.querySelector('[data-k="kunci"]').onclick = function () { tutup('kunci'); o.kunci(); };
+      var bHapus = lat.querySelector('[data-k="hapus"]'), galat = lat.querySelector('[data-galat]');
+      bHapus.onclick = function () {
+        bHapus.disabled = true; bHapus.textContent = o.kirimDulu ? 'Mengirim perubahan…' : 'Menghapus…'; galat.style.display = 'none';
+        Promise.resolve().then(function () { return o.hapus ? o.hapus() : null; }).then(function () { tutup('hapus'); }, function (e) {
+          bHapus.disabled = false; bHapus.textContent = 'Ya, hapus akses';
+          galat.textContent = 'Gagal: ' + ((e && e.message) || e) + '. Coba lagi saat ada sinyal.'; galat.style.display = 'block';
+        });
+      };
+      document.body.appendChild(lat);
+      lat.querySelector('[data-k="batal"]').focus();
+    });
+  }
+  var api = { tanyaHapusAkses: tanyaHapusAkses, GEMBOK: GEMBOK };
+  if (typeof window !== 'undefined') window.KitKunci = api; // dipakai juga dari bagian layar yang terpisah (MyTagihan)
+  return api;
+})();
 /* ======================================================================
  *  KIT LENSA Suite · redaksi.js 1.0 — penyusun pesan WhatsApp bersama.
  *  Dipakai di: mesin LENSA (Apps Script dan perangkat), aplikasi LENSA PK, Monitor SPPG.
@@ -2336,7 +2397,7 @@ var CSS_PESAN_WA = "*{box-sizing:border-box}\n.modul-wa{font:15px/1.45 system-ui
  *  Definisi ITB/ITW/koefisien mengikuti LENSA PK.
  * ========================================================================== */
 
-var VERSI = '2.0.1';
+var VERSI = '2.0.2';
 var UJI = { hariIni: null, jam: null };
 
 var NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
@@ -5171,6 +5232,7 @@ function $(s) { return document.querySelector(s); }
 function $$(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
 
 var IKON = {
+  kunci: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', // 2.0.2
   dasbor: '<path d="M3 3h8v10H3zM13 3h8v6h-8zM13 11h8v10h-8zM3 15h8v6H3z"/>',
   sppg: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
   hubungi: '<path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.6-5.2A8.5 8.5 0 1 1 21 12z"/>',
@@ -5281,7 +5343,9 @@ function renderNav() {
   $('#nav').innerHTML = TAB.map(function (t) {
     var lenc = t[0] === 'hubungi' && jJanji ? '<span class="lencana" title="janji bayar jatuh tempo">' + jJanji + '</span>' : '';
     return '<button type="button" data-a="tab" data-v="' + t[0] + '"' + (UI.tab === t[0] ? ' aria-current="page"' : '') + '>' + ikon(t[0]) + '<span>' + t[1] + '</span>' + lenc + '</button>';
-  }).join('');
+  }).join('') +
+    // 2.0.2: tombol Kunci selalu terlihat (data & akses tetap, dibuka lagi dengan PIN)
+    '<button type="button" class="nav-kunci" data-a="kunciGadget" title="Kunci: data & akses tetap, dibuka lagi dengan PIN">' + ikon('kunci') + '<span>Kunci</span></button>';
   var b = [];
   if (M && M.ada) b.push('<div><span class="panjang">Data iuran per </span>' + esc(tglPendek(M.dataPer.akhir)) + '</div>');
   var ket = SIMPAN.jenis === 'idb' ? 'Tersimpan di perangkat ini' : SIMPAN.jenis === 'ls' ? 'Tersimpan (mode cadangan)' : 'Belum tersimpan';
@@ -5828,7 +5892,7 @@ function kartuSinkron() {
         '<br>Gadget ini: <b style="color:var(--teks)">' + esc(labelPerangkat()) + ' · ' + esc(ak.idp) + '</b>' : '') +
       (!terdaftar() ? '<br><span style="color:#8A5A00">Gadget ini masih memakai KUNCI lama' + (sk.serverLama ? ' karena skrip Google Sheet belum versi 1.3 (minta admin memasang Monitor_SPPG_Sinkron.gs terbaru).' : '; akan terdaftar otomatis saat sinkron berikutnya.') + '</span>' : '') +
       (sk.galat ? '<br><span style="color:#9E2A22">Galat: ' + esc(sk.galat) + '</span>' : '') + '<br>Data otomatis disinkron setiap ada perubahan, saat sinyal kembali, dan tiap 2 menit. Gadget yang ' + HARI_KUNCI_SINKRON + ' hari tidak sinkron terkunci sampai sinkron berhasil.</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn utama" data-a="sinkronSekarang">Sinkron sekarang</button>' + (terdaftar() ? '<button class="btn bahaya" data-a="keluarGadget">Keluar dari gadget ini</button>' : '') + '</div>';
+      '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn utama" data-a="sinkronSekarang">Sinkron sekarang</button>' + (terdaftar() ? '<button class="btn bahaya" data-a="keluarGadget">Hapus akses dari gadget ini</button>' : '') + '</div>';
     h += blokLensa();
   } else {
     h += '<div style="font-size:14px;color:var(--pudar)">Gadget ini belum terdaftar. Masukkan kode undangan dari LENSA PK › Perangkat &amp; pengguna (sekali pakai).</div>' +
@@ -6175,14 +6239,27 @@ var AKSI = {
     toast(h.ok ? 'Sinkron selesai · ' + h.terkirim + ' dikirim, ' + h.diterima + ' diterima' + (h.lensa ? ' · titipan untuk LENSA terkirim; di LENSA PK ketuk "Sinkron dengan Monitor SPPG" agar langsung diproses' : '') + '.' : 'Sinkron gagal: ' + (h.galat || 'sedang berjalan'), h.lensa ? 6000 : 4000);
     if (UI.tab === 'data') render(true);
   },
+  /* 2.0.2: "Hapus akses" (dulu "Keluar") lewat jendela penjelasan bersama LENSA Suite; "Kunci" selalu terlihat di menu */
   keluarGadget: async function () {
-    if (!confirm('Keluar dari Monitor SPPG di gadget ini?\n\nSemua perubahan dikirim dulu ke Google Sheet, lalu data Monitor di gadget ini dihapus. Untuk masuk lagi perlu kode undangan baru dari LENSA PK.')) return;
-    toast('Mengirim perubahan terakhir…', 2000);
-    try {
-      await keluarPerangkat();
-      try { sessionStorage.setItem('msppg_dicabut', 'Anda sudah keluar dari Monitor SPPG di gadget ini.'); } catch (x) { /* diam */ }
-      location.reload();
-    } catch (e) { toast('Gagal keluar: ' + e.message, 6000); }
+    var h = await KitKunci.tanyaHapusAkses({ aplikasi: 'Monitor SPPG', perangkat: 'gadget', kirimDulu: true, dari: 'LENSA PK', kunci: function () { AKSI.kunciGadget(); },
+      hapus: async function () { await keluarPerangkat(); try { sessionStorage.setItem('msppg_dicabut', 'Akses Monitor SPPG di gadget ini sudah dihapus, begitu juga datanya.'); } catch (x) { /* diam */ } } });
+    if (h === 'hapus') location.reload();
+  },
+  kunciGadget: async function () {
+    if (!pinAktif()) {
+      return bukaDialog('<h2>Kunci Monitor SPPG di gadget ini</h2><p style="margin:0;color:var(--pudar)">Buat PIN dulu. Setelah dikunci, Monitor SPPG hanya bisa dibuka dengan PIN ini; data & akses tetap ada.</p>' +
+        '<label class="field">PIN (4–12 angka)<input class="inp" data-f="pinKunci1" type="password" inputmode="numeric" autocomplete="new-password"></label>' +
+        '<label class="field">Ulangi PIN<input class="inp" data-f="pinKunci2" type="password" inputmode="numeric" autocomplete="new-password"></label>' +
+        '<div class="aksi"><button class="btn" data-a="tutupDialog">Batal</button><button class="btn utama" data-a="kunciPasang">Pasang PIN & kunci</button></div>');
+    }
+    await simpanDb(true);
+    location.reload();
+  },
+  kunciPasang: async function () {
+    var p1 = $('[data-f="pinKunci1"]').value.trim(), p2 = $('[data-f="pinKunci2"]').value.trim();
+    if (!KitSandi.pinSah(p1)) return toast('PIN 4–12 angka.');
+    if (p1 !== p2) return toast('Ulangi PIN tidak sama.');
+    try { await pasangPin(p1); await simpanDb(true); location.reload(); } catch (x) { toast(x.message, 6000); }
   }
 };
 
